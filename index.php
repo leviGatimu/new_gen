@@ -25,7 +25,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             'admin' => 'admin/dashboard.php',
             'teacher' => 'teacher/dashboard.php',
             'student' => 'student/dashboard.php',
-            'parent' => 'parent/dashboard.php'
+            'parent' => 'parent/dashboard.php', // <--- FIXED: Added comma here
+            'accountant' => 'accountant/dashboard.php'
         ];
         
         if(array_key_exists($user['role'], $destinations)){
@@ -115,4 +116,4 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     </div>
 </div>
 </body>
-</html>
+</html> 
