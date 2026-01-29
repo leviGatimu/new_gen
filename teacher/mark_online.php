@@ -12,7 +12,6 @@ $assessment_id = $_GET['id'] ?? null;
 $current_student_id = $_GET['student_id'] ?? null;
 
 // 1. FETCH EXAM DETAILS
-// Note: Depending on your DB, ensure 'online_assessments' ID maps to 'assessment_id' in report cards
 $stmt = $pdo->prepare("SELECT oa.*, c.class_name, s.subject_name 
                         FROM online_assessments oa
                         JOIN classes c ON oa.class_id = c.class_id
@@ -64,7 +63,7 @@ $options = $opt_stmt->fetchAll();
 $opt_map = [];
 foreach($options as $opt) { $opt_map[$opt['question_id']][] = $opt; }
 
-// 5. HANDLE SAVE & SYNC (THE FIX IS HERE)
+// 5. HANDLE SAVE (FIXED LOGIC)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_grades'])) {
     $total_score = 0;
     
@@ -86,38 +85,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_grades'])) {
 
     $teacher_comment = $_POST['teacher_comment'] ?? '';
     
-    // B. Update the Online Submission Record
-    $upd = $pdo->prepare("UPDATE assessment_submissions SET obtained_marks = ?, teacher_comment = ?, is_marked = 1 WHERE id = ?");
-    $upd->execute([$total_score, $teacher_comment, $current_submission['id']]);
-
-    // C. SYNC TO MAIN REPORT CARD (student_marks table)
-    if (isset($_POST['sync_to_records'])) {
-        
-        // 1. Check if mark exists in main table
-        $chk = $pdo->prepare("SELECT mark_id FROM student_marks WHERE student_id = ? AND assessment_id = ?");
-        $chk->execute([$current_student_id, $assessment_id]);
-        $exists = $chk->fetch();
-
-       if ($exists) {
-            // Update existing mark
-            $sync_stmt = $pdo->prepare("UPDATE student_marks SET score = ? WHERE mark_id = ?");
-            $sync_stmt->execute([$total_score, $exists['mark_id']]);
-        } else {
-            // Insert new mark (FIXED: Removed subject_id)
-            $sync_stmt = $pdo->prepare("INSERT INTO student_marks (student_id, assessment_id, score) VALUES (?, ?, ?)");
-            $sync_stmt->execute([
-                $current_student_id, 
-                $assessment_id, 
-                $total_score
-            ]);
-        }
-        
-        $msg = "Graded and Synced to Report Card!";
+    // B. SAVE TO DATABASE (CORRECTED)
+    // We check if a submission exists. If yes, update. If no, insert new.
+    if ($current_submission) {
+        $upd = $pdo->prepare("UPDATE assessment_submissions SET obtained_marks = ?, teacher_comment = ?, is_marked = 1 WHERE id = ?");
+        $upd->execute([$total_score, $teacher_comment, $current_submission['id']]);
     } else {
-        $msg = "Grade Saved (Not Synced).";
+        // Teacher is grading a student who hasn't submitted (Manual Entry)
+        $ins = $pdo->prepare("INSERT INTO assessment_submissions (assessment_id, student_id, obtained_marks, teacher_comment, is_marked, submission_text, submitted_at) VALUES (?, ?, ?, ?, 1, '{}', NOW())");
+        $ins->execute([$assessment_id, $current_student_id, $total_score, $teacher_comment]);
     }
 
-    // Refresh
+    $msg = "Grade Saved Successfully.";
+
+    // Refresh page
     header("Location: mark_online.php?id=$assessment_id&student_id=$current_student_id&msg=" . urlencode($msg));
     exit;
 }
@@ -173,10 +154,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_grades'])) {
         .points-input { width: 60px; padding: 8px; border: 2px solid var(--primary); border-radius: 6px; font-weight: 700; text-align: center; font-size: 1rem; }
 
         /* FOOTER ACTIONS */
-        .action-bar { background: white; padding: 20px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; position: sticky; bottom: 0; }
-        
-        .sync-toggle { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
-        .sync-checkbox { width: 20px; height: 20px; accent-color: var(--primary); }
+        .action-bar { background: white; padding: 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; align-items: center; position: sticky; bottom: 0; }
         
         .btn-save { background: var(--dark); color: white; border: none; padding: 12px 30px; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 1rem; transition: 0.2s; }
         .btn-save:hover { background: var(--primary); transform: translateY(-2px); }
@@ -219,24 +197,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_grades'])) {
         <?php endif; ?>
 
         <?php if(!$current_submission): ?>
-            <div style="text-align:center; padding:100px; color:#919eab;">
-                <i class='bx bx-user-x' style="font-size:4rem;"></i>
-                <h2>Not Submitted</h2>
-                <p>This student has not submitted the assessment yet.</p>
-            </div>
+            <form method="POST" class="paper">
+                <div class="paper-header">
+                    <div>
+                        <h2 style="margin:0; color:var(--dark);">Manual Grading</h2>
+                        <span style="font-size:0.85rem; color:#637381;">Student has not submitted. Enter grade manually.</span>
+                    </div>
+                    <div>
+                        <span style="display:block; font-size:0.75rem; color:#919eab; text-transform:uppercase;">Current Total</span>
+                        <span class="total-display" id="grandTotal">0</span> <span style="font-size:1rem; color:#919eab;">/ <?php echo $exam['total_marks']; ?></span>
+                    </div>
+                </div>
         <?php else: ?>
-        
-        <form method="POST" class="paper">
-            <div class="paper-header">
-                <div>
-                    <h2 style="margin:0; color:var(--dark);">Grading</h2>
-                    <span style="font-size:0.85rem; color:#637381;">Review answers and assign points.</span>
+            <form method="POST" class="paper">
+                <div class="paper-header">
+                    <div>
+                        <h2 style="margin:0; color:var(--dark);">Grading</h2>
+                        <span style="font-size:0.85rem; color:#637381;">Review answers and assign points.</span>
+                    </div>
+                    <div>
+                        <span style="display:block; font-size:0.75rem; color:#919eab; text-transform:uppercase;">Current Total</span>
+                        <span class="total-display" id="grandTotal">0</span> <span style="font-size:1rem; color:#919eab;">/ <?php echo $exam['total_marks']; ?></span>
+                    </div>
                 </div>
-                <div>
-                    <span style="display:block; font-size:0.75rem; color:#919eab; text-transform:uppercase;">Current Total</span>
-                    <span class="total-display" id="grandTotal">0</span> <span style="font-size:1rem; color:#919eab;">/ <?php echo $exam['total_marks']; ?></span>
-                </div>
-            </div>
+        <?php endif; ?>
 
             <?php 
             $running_total = 0;
@@ -303,20 +287,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_grades'])) {
             </div>
 
             <div class="action-bar">
-                <label class="sync-toggle">
-                    <input type="checkbox" name="sync_to_records" class="sync-checkbox" checked>
-                    <div>
-                        <div style="font-weight:700; color:var(--dark);">Record to Report Card</div>
-                        <div style="font-size:0.8rem; color:#637381;">Automatically updates the official academic records.</div>
-                    </div>
-                </label>
-
                 <button type="submit" name="save_grades" class="btn-save">
-                    <i class='bx bxs-save'></i> Save & Record
+                    <i class='bx bxs-save'></i> Save Grade
                 </button>
             </div>
         </form>
-        <?php endif; ?>
     </div>
 </div>
 
