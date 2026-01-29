@@ -3,6 +3,7 @@
 session_start();
 require '../config/db.php';
 
+// 1. SECURITY
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
     header("Location: ../index.php"); exit;
 }
@@ -61,7 +62,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // 5. ASSIGN LEADERSHIP ROLE (FIXED LOGIC)
     if (isset($_POST['assign_role'])) {
-        $role = $_POST['assign_role']; // We get the role directly from the button value now
+        $role = $_POST['assign_role']; 
         
         try {
             $pdo->beginTransaction();
@@ -126,106 +127,70 @@ if ($view_student_id) {
     $students_by_class = [];
     foreach ($all_students as $s) { $students_by_class[$s['class_id']][] = $s; }
 }
+
+// INCLUDE HEADER (Contains CSS and Nav)
+$page_title = "Manage Students";
+include '../includes/header.php';
+
 ?>
 
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Manage Students | NGA</title>
-    <link rel="stylesheet" href="../assets/css/style.css">
-    <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
-    <style>
-        /* === VARIABLES === */
-        :root { --primary: #FF6600; --primary-light: #fff0e6; --dark: #212b36; --light-bg: #f4f6f8; --white: #ffffff; --border: #dfe3e8; --nav-height: 75px; --danger: #ff4d4f; --success: #00ab55; --warning: #ffc107; --purple: #9c27b0; }
-        html, body { background-color: var(--light-bg); margin: 0; padding: 0; font-family: 'Public Sans', sans-serif; overflow-y: auto; height: auto; }
+<style>
+    /* === VARIABLES === */
+    :root { --primary: #FF6600; --primary-light: #fff0e6; --dark: #212b36; --light-bg: #f4f6f8; --white: #ffffff; --border: #dfe3e8; --nav-height: 75px; --danger: #ff4d4f; --success: #00ab55; --warning: #ffc107; --purple: #9c27b0; }
+    
+    /* === CONTENT === */
+    .main-content { margin-top: 0; padding: 40px 5%; width: 100%; box-sizing: border-box; } /* Adjusted top margin since header handles it */
+    .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
+    .page-title { margin: 0; font-size: 1.8rem; color: var(--dark); font-weight: 800; }
 
-        /* === NAV & LAYOUT === */
-        .top-navbar { position: fixed; top: 0; left: 0; width: 100%; height: var(--nav-height); background: var(--white); z-index: 1000; display: flex; justify-content: space-between; align-items: center; padding: 0 40px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); border-bottom: 1px solid var(--border); box-sizing: border-box; }
-        .nav-brand { display: flex; align-items: center; gap: 15px; text-decoration: none; }
-        .logo-box { width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; }
-        .logo-box img { width: 80%; height: 80%; object-fit: contain; }
-        .nav-brand-text { font-size: 1.25rem; font-weight: 800; color: var(--dark); letter-spacing: -0.5px; }
-        .nav-menu { display: flex; gap: 5px; align-items: center; }
-        .nav-item { text-decoration: none; color: #637381; font-weight: 600; font-size: 0.95rem; padding: 10px 15px; border-radius: 8px; transition: 0.2s; display: flex; align-items: center; gap: 6px; }
-        .nav-item:hover { color: var(--primary); background: rgba(255, 102, 0, 0.05); }
-        .nav-item.active { background: var(--primary); color: white; }
-        .btn-logout { text-decoration: none; color: #ff4d4f; font-weight: 700; font-size: 0.85rem; padding: 8px 16px; border: 1.5px solid #ff4d4f; border-radius: 8px; transition: 0.2s; }
-        .btn-logout:hover { background: #ff4d4f; color: white; }
+    .alert { padding: 15px 20px; border-radius: 10px; margin-bottom: 25px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+    .alert-success { background: #e9fcd4; color: #229a16; border: 1px solid #b7eb8f; }
+    .alert-error { background: #ffe7d9; color: #7a0c2e; border: 1px solid #ffa39e; }
+    .alert-warning { background: #fff7cd; color: #7a4f01; border: 1px solid #ffe58f; }
 
-        /* === CONTENT === */
-        .main-content { margin-top: var(--nav-height); padding: 40px 5%; width: 100%; box-sizing: border-box; }
-        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
-        .page-title { margin: 0; font-size: 1.8rem; color: var(--dark); font-weight: 800; }
+    .grid-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 25px; }
+    .class-card { background: var(--white); border-radius: 16px; padding: 25px; box-shadow: 0 4px 12px rgba(0,0,0,0.02); border: 1px solid var(--border); transition: 0.3s; position: relative; overflow: hidden; cursor: pointer; }
+    .class-card:hover { transform: translateY(-5px); border-color: var(--primary); box-shadow: 0 12px 24px rgba(0,0,0,0.08); }
+    .class-card::before { content: ''; position: absolute; top: 0; left: 0; width: 6px; height: 100%; background: var(--primary); opacity: 0.5; }
+    .class-icon { font-size: 2.5rem; color: var(--primary); margin-bottom: 15px; background: var(--primary-light); width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+    .class-name { margin: 0; font-size: 1.2rem; font-weight: 700; color: var(--dark); }
+    .class-meta { color: #637381; font-size: 0.9rem; margin-top: 5px; font-weight: 500; }
 
-        .alert { padding: 15px 20px; border-radius: 10px; margin-bottom: 25px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
-        .alert-success { background: #e9fcd4; color: #229a16; border: 1px solid #b7eb8f; }
-        .alert-error { background: #ffe7d9; color: #7a0c2e; border: 1px solid #ffa39e; }
-        .alert-warning { background: #fff7cd; color: #7a4f01; border: 1px solid #ffe58f; }
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(33, 43, 54, 0.6); backdrop-filter: blur(4px); z-index: 2000; align-items: center; justify-content: center; }
+    .modal-box { background: var(--white); width: 95%; max-width: 1000px; height: 85vh; border-radius: 16px; display: flex; flex-direction: column; box-shadow: 0 20px 40px rgba(0,0,0,0.2); animation: slideUp 0.3s ease-out; }
+    @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    
+    .modal-header { padding: 20px 30px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: #fafbfc; border-radius: 16px 16px 0 0; }
+    .modal-body { padding: 0; overflow-y: auto; flex: 1; }
 
-        .grid-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 25px; }
-        .class-card { background: var(--white); border-radius: 16px; padding: 25px; box-shadow: 0 4px 12px rgba(0,0,0,0.02); border: 1px solid var(--border); transition: 0.3s; position: relative; overflow: hidden; cursor: pointer; }
-        .class-card:hover { transform: translateY(-5px); border-color: var(--primary); box-shadow: 0 12px 24px rgba(0,0,0,0.08); }
-        .class-card::before { content: ''; position: absolute; top: 0; left: 0; width: 6px; height: 100%; background: var(--primary); opacity: 0.5; }
-        .class-icon { font-size: 2.5rem; color: var(--primary); margin-bottom: 15px; background: var(--primary-light); width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
-        .class-name { margin: 0; font-size: 1.2rem; font-weight: 700; color: var(--dark); }
-        .class-meta { color: #637381; font-size: 0.9rem; margin-top: 5px; font-weight: 500; }
+    .styled-table { width: 100%; border-collapse: collapse; }
+    .styled-table th { background: #f9fafb; padding: 15px 25px; text-align: left; font-size: 0.75rem; text-transform: uppercase; color: #637381; font-weight: 700; position: sticky; top: 0; border-bottom: 1px solid var(--border); z-index: 10; }
+    .styled-table td { padding: 15px 25px; border-bottom: 1px solid #f4f6f8; font-size: 0.9rem; color: var(--dark); vertical-align: middle; }
+    .styled-table tr:hover { background: #f9fafb; }
 
-        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(33, 43, 54, 0.6); backdrop-filter: blur(4px); z-index: 2000; align-items: center; justify-content: center; }
-        .modal-box { background: var(--white); width: 95%; max-width: 1000px; height: 85vh; border-radius: 16px; display: flex; flex-direction: column; box-shadow: 0 20px 40px rgba(0,0,0,0.2); animation: slideUp 0.3s ease-out; }
-        @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-        
-        .modal-header { padding: 20px 30px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: #fafbfc; border-radius: 16px 16px 0 0; }
-        .modal-body { padding: 0; overflow-y: auto; flex: 1; }
+    .action-menu { position: relative; display: inline-block; }
+    .action-btn { background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #637381; padding: 5px; border-radius: 50%; transition: 0.2s; }
+    .action-btn:hover { background: #f4f6f8; color: var(--dark); }
+    .dropdown-content { display: none; position: absolute; right: 0; background-color: white; min-width: 180px; box-shadow: 0 8px 16px rgba(0,0,0,0.15); border-radius: 8px; z-index: 20; border: 1px solid var(--border); overflow: hidden; }
+    .dropdown-content button, .dropdown-content a { color: var(--dark); padding: 12px 16px; text-decoration: none; display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border: none; background: none; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: 0.2s; }
+    .dropdown-content button:hover, .dropdown-content a:hover { background-color: #f4f6f8; }
+    .dropdown-content button.danger { color: var(--danger); }
+    .dropdown-content button.danger:hover { background-color: #fff1f0; }
+    .dropdown-header { padding: 8px 16px; font-size: 0.7rem; text-transform: uppercase; color: #999; font-weight: 700; border-bottom: 1px solid #eee; background: #fafbfc; }
+    .show { display: block; }
 
-        .styled-table { width: 100%; border-collapse: collapse; }
-        .styled-table th { background: #f9fafb; padding: 15px 25px; text-align: left; font-size: 0.75rem; text-transform: uppercase; color: #637381; font-weight: 700; position: sticky; top: 0; border-bottom: 1px solid var(--border); z-index: 10; }
-        .styled-table td { padding: 15px 25px; border-bottom: 1px solid #f4f6f8; font-size: 0.9rem; color: var(--dark); vertical-align: middle; }
-        .styled-table tr:hover { background: #f9fafb; }
+    .badge { padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
+    .bg-green { background: #e9fcd4; color: #229a16; }
+    .bg-orange { background: #fff7cd; color: #b78103; }
+    .bg-purple { background: #f3e5f5; color: #9c27b0; }
 
-        .action-menu { position: relative; display: inline-block; }
-        .action-btn { background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #637381; padding: 5px; border-radius: 50%; transition: 0.2s; }
-        .action-btn:hover { background: #f4f6f8; color: var(--dark); }
-        .dropdown-content { display: none; position: absolute; right: 0; background-color: white; min-width: 180px; box-shadow: 0 8px 16px rgba(0,0,0,0.15); border-radius: 8px; z-index: 20; border: 1px solid var(--border); overflow: hidden; }
-        .dropdown-content button, .dropdown-content a { color: var(--dark); padding: 12px 16px; text-decoration: none; display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border: none; background: none; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: 0.2s; }
-        .dropdown-content button:hover, .dropdown-content a:hover { background-color: #f4f6f8; }
-        .dropdown-content button.danger { color: var(--danger); }
-        .dropdown-content button.danger:hover { background-color: #fff1f0; }
-        .dropdown-header { padding: 8px 16px; font-size: 0.7rem; text-transform: uppercase; color: #999; font-weight: 700; border-bottom: 1px solid #eee; background: #fafbfc; }
-        .show { display: block; }
-
-        .badge { padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
-        .bg-green { background: #e9fcd4; color: #229a16; }
-        .bg-orange { background: #fff7cd; color: #b78103; }
-        .bg-purple { background: #f3e5f5; color: #9c27b0; }
-
-        .profile-container { display: grid; grid-template-columns: 350px 1fr; gap: 30px; }
-        .profile-sidebar { background: white; padding: 30px; border-radius: 16px; text-align: center; border: 1px solid var(--border); height: fit-content; }
-        .large-avatar { width: 120px; height: 120px; background: #212b36; color: white; font-size: 3.5rem; display: flex; align-items: center; justify-content: center; border-radius: 50%; margin: 0 auto 20px; font-weight: 800; }
-        .profile-content { background: white; padding: 30px; border-radius: 16px; border: 1px solid var(--border); }
-        .btn-add { background: var(--dark); color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 700; display: inline-flex; align-items: center; gap: 8px; }
-        .btn-add:hover { background: #000; }
-    </style>
-</head>
-<body>
-
-<nav class="top-navbar">
-    <a href="dashboard.php" class="nav-brand">
-        <div class="logo-box"><img src="../assets/images/logo.png" alt="NGA"></div>
-        <span class="nav-brand-text">NGA Admin</span>
-    </a>
-    <div class="nav-menu">
-        <a href="dashboard.php" class="nav-item"><i class='bx bxs-dashboard'></i> <span>Dashboard</span></a>
-        <a href="students.php" class="nav-item active"><i class='bx bxs-user-detail'></i> <span>Students</span></a>
-        <a href="teachers.php" class="nav-item"><i class='bx bxs-id-card'></i> <span>Teachers</span></a>
-        <a href="leadership.php" class="nav-item"><i class='bx bxs-star'></i>Leadership</a>
-        <a href="classes.php" class="nav-item"><i class='bx bxs-school'></i> <span>Classes</span></a>
-        <a href="finance_report.php" class="nav-item"><i class='bx bxs-bar-chart-alt-2'></i> <span>Finance</span></a>
-        <a href="events.php" class="nav-item"><i class="fa-solid fa-calendar"></i></i> <span>Events</span></a>
-        <a href="settings.php" class="nav-item"><i class='bx bxs-cog'></i> <span>Settings</span></a>
-    </div>
-    <div class="nav-user"><a href="../logout.php" class="btn-logout">Logout</a></div>
-</nav>
+    .profile-container { display: grid; grid-template-columns: 350px 1fr; gap: 30px; }
+    .profile-sidebar { background: white; padding: 30px; border-radius: 16px; text-align: center; border: 1px solid var(--border); height: fit-content; }
+    .large-avatar { width: 120px; height: 120px; background: #212b36; color: white; font-size: 3.5rem; display: flex; align-items: center; justify-content: center; border-radius: 50%; margin: 0 auto 20px; font-weight: 800; }
+    .profile-content { background: white; padding: 30px; border-radius: 16px; border: 1px solid var(--border); }
+    .btn-add { background: var(--dark); color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 700; display: inline-flex; align-items: center; gap: 8px; }
+    .btn-add:hover { background: #000; }
+</style>
 
 <div class="main-content">
 
