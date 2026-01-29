@@ -58,6 +58,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = "Student is in the lowest class."; $msg_type = "warning";
         }
     }
+
+    // 5. ASSIGN LEADERSHIP ROLE (FIXED LOGIC)
+    if (isset($_POST['assign_role'])) {
+        $role = $_POST['assign_role']; // We get the role directly from the button value now
+        
+        try {
+            $pdo->beginTransaction();
+
+            // If appointing Head Boy/Girl, remove the title from the previous one
+            if ($role === 'Head Boy' || $role === 'Head Girl') {
+                $pdo->prepare("UPDATE students SET leadership_role = NULL WHERE leadership_role = ?")->execute([$role]);
+            }
+
+            // Assign new role (or remove if 'None')
+            $final_role = ($role === 'None') ? NULL : $role;
+            $pdo->prepare("UPDATE students SET leadership_role = ? WHERE student_id = ?")->execute([$final_role, $s_id]);
+
+            $pdo->commit();
+            $message = "Leadership role updated to: " . ($final_role ?? "Student"); 
+            $msg_type = "success";
+        } catch (Exception $e) {
+            $pdo->rollBack();
+            $message = "Error assigning role."; $msg_type = "error";
+        }
+    }
 }
 
 // --- DATA FETCHING ---
@@ -65,8 +90,7 @@ $student_data = null;
 $student_marks = [];
 
 if ($view_student_id) {
-    // FIXED: Changed access_key to parent_access_code
-    $stmt = $pdo->prepare("SELECT u.*, s.admission_number, s.parent_access_code, c.class_name, c.class_id 
+    $stmt = $pdo->prepare("SELECT u.*, s.admission_number, s.parent_access_code, s.leadership_role, c.class_name, c.class_id 
                            FROM users u 
                            JOIN students s ON u.user_id = s.student_id 
                            LEFT JOIN classes c ON s.class_id = c.class_id
@@ -94,8 +118,8 @@ if ($view_student_id) {
         }
     }
 } else {
-    // FIXED: Changed access_key to parent_access_code
-    $sql = "SELECT users.user_id, users.full_name, users.email, students.admission_number, students.class_id, students.parent_access_code 
+    // Fetch students list
+    $sql = "SELECT users.user_id, users.full_name, users.email, students.admission_number, students.class_id, students.parent_access_code, students.leadership_role 
             FROM students JOIN users ON students.student_id = users.user_id 
             ORDER BY users.full_name ASC";
     $all_students = $pdo->query($sql)->fetchAll();
@@ -113,10 +137,10 @@ if ($view_student_id) {
     <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
     <style>
         /* === VARIABLES === */
-        :root { --primary: #FF6600; --primary-light: #fff0e6; --dark: #212b36; --light-bg: #f4f6f8; --white: #ffffff; --border: #dfe3e8; --nav-height: 75px; --danger: #ff4d4f; --success: #00ab55; --warning: #ffc107; }
+        :root { --primary: #FF6600; --primary-light: #fff0e6; --dark: #212b36; --light-bg: #f4f6f8; --white: #ffffff; --border: #dfe3e8; --nav-height: 75px; --danger: #ff4d4f; --success: #00ab55; --warning: #ffc107; --purple: #9c27b0; }
         html, body { background-color: var(--light-bg); margin: 0; padding: 0; font-family: 'Public Sans', sans-serif; overflow-y: auto; height: auto; }
 
-        /* === NAV === */
+        /* === NAV & LAYOUT === */
         .top-navbar { position: fixed; top: 0; left: 0; width: 100%; height: var(--nav-height); background: var(--white); z-index: 1000; display: flex; justify-content: space-between; align-items: center; padding: 0 40px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); border-bottom: 1px solid var(--border); box-sizing: border-box; }
         .nav-brand { display: flex; align-items: center; gap: 15px; text-decoration: none; }
         .logo-box { width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; }
@@ -162,22 +186,23 @@ if ($view_student_id) {
         .action-menu { position: relative; display: inline-block; }
         .action-btn { background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #637381; padding: 5px; border-radius: 50%; transition: 0.2s; }
         .action-btn:hover { background: #f4f6f8; color: var(--dark); }
-        .dropdown-content { display: none; position: absolute; right: 0; background-color: white; min-width: 160px; box-shadow: 0 8px 16px rgba(0,0,0,0.15); border-radius: 8px; z-index: 20; border: 1px solid var(--border); overflow: hidden; }
-        .dropdown-content button { color: var(--dark); padding: 12px 16px; text-decoration: none; display: block; width: 100%; text-align: left; border: none; background: none; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: 0.2s; }
-        .dropdown-content button:hover { background-color: #f4f6f8; }
+        .dropdown-content { display: none; position: absolute; right: 0; background-color: white; min-width: 180px; box-shadow: 0 8px 16px rgba(0,0,0,0.15); border-radius: 8px; z-index: 20; border: 1px solid var(--border); overflow: hidden; }
+        .dropdown-content button, .dropdown-content a { color: var(--dark); padding: 12px 16px; text-decoration: none; display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border: none; background: none; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: 0.2s; }
+        .dropdown-content button:hover, .dropdown-content a:hover { background-color: #f4f6f8; }
         .dropdown-content button.danger { color: var(--danger); }
         .dropdown-content button.danger:hover { background-color: #fff1f0; }
+        .dropdown-header { padding: 8px 16px; font-size: 0.7rem; text-transform: uppercase; color: #999; font-weight: 700; border-bottom: 1px solid #eee; background: #fafbfc; }
         .show { display: block; }
 
         .badge { padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
         .bg-green { background: #e9fcd4; color: #229a16; }
         .bg-orange { background: #fff7cd; color: #b78103; }
+        .bg-purple { background: #f3e5f5; color: #9c27b0; }
 
         .profile-container { display: grid; grid-template-columns: 350px 1fr; gap: 30px; }
         .profile-sidebar { background: white; padding: 30px; border-radius: 16px; text-align: center; border: 1px solid var(--border); height: fit-content; }
         .large-avatar { width: 120px; height: 120px; background: #212b36; color: white; font-size: 3.5rem; display: flex; align-items: center; justify-content: center; border-radius: 50%; margin: 0 auto 20px; font-weight: 800; }
         .profile-content { background: white; padding: 30px; border-radius: 16px; border: 1px solid var(--border); }
-        
         .btn-add { background: var(--dark); color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 700; display: inline-flex; align-items: center; gap: 8px; }
         .btn-add:hover { background: #000; }
     </style>
@@ -193,8 +218,9 @@ if ($view_student_id) {
         <a href="dashboard.php" class="nav-item"><i class='bx bxs-dashboard'></i> <span>Dashboard</span></a>
         <a href="students.php" class="nav-item active"><i class='bx bxs-user-detail'></i> <span>Students</span></a>
         <a href="teachers.php" class="nav-item"><i class='bx bxs-id-card'></i> <span>Teachers</span></a>
+        <a href="leadership.php" class="nav-item"><i class='bx bxs-star'></i> <span>Leadership</span></a>
         <a href="classes.php" class="nav-item"><i class='bx bxs-school'></i> <span>Classes</span></a>
-         <a href="finance_report.php" class="nav-item"><i class='bx bxs-bar-chart-alt-2'></i> <span>Finance</span></a>
+        <a href="finance_report.php" class="nav-item"><i class='bx bxs-bar-chart-alt-2'></i> <span>Finance</span></a>
         <a href="settings.php" class="nav-item"><i class='bx bxs-cog'></i> <span>Settings</span></a>
     </div>
     <div class="nav-user"><a href="../logout.php" class="btn-logout">Logout</a></div>
@@ -220,7 +246,11 @@ if ($view_student_id) {
                     <?php echo strtoupper(substr($student_data['full_name'], 0, 1)); ?>
                 </div>
                 <h2 style="margin:0;"><?php echo htmlspecialchars($student_data['full_name']); ?></h2>
-                <p style="color:#637381; font-weight:600;"><?php echo htmlspecialchars($student_data['class_name'] ?? 'Unassigned'); ?></p>
+                <p style="color:#637381; font-weight:600; margin-bottom: 5px;"><?php echo htmlspecialchars($student_data['class_name'] ?? 'Unassigned'); ?></p>
+                
+                <?php if($student_data['leadership_role']): ?>
+                    <span class="badge bg-purple"><i class='bx bxs-star'></i> <?php echo $student_data['leadership_role']; ?></span>
+                <?php endif; ?>
                 
                 <div style="text-align:left; background:#f9fafb; padding:15px; border-radius:10px; margin-top:20px; font-size:0.9rem;">
                     <div style="margin-bottom:10px;"><strong>Adm No:</strong> <span style="float:right;"><?php echo $student_data['admission_number']; ?></span></div>
@@ -313,7 +343,12 @@ if ($view_student_id) {
                                                     <div style="width:30px; height:30px; background:#f4f6f8; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.8rem; color:#637381;">
                                                         <?php echo substr($s['full_name'], 0, 1); ?>
                                                     </div>
-                                                    <?php echo htmlspecialchars($s['full_name']); ?>
+                                                    <div>
+                                                        <?php echo htmlspecialchars($s['full_name']); ?>
+                                                        <?php if($s['leadership_role']): ?>
+                                                            <span class="badge bg-purple" style="font-size:0.6rem; margin-left:5px;"><?php echo $s['leadership_role']; ?></span>
+                                                        <?php endif; ?>
+                                                    </div>
                                                 </div>
                                             </td>
                                             <td style="color:#637381; font-family:monospace;"><?php echo $s['admission_number']; ?></td>
@@ -328,14 +363,26 @@ if ($view_student_id) {
                                                 <div class="action-menu">
                                                     <button class="action-btn" onclick="toggleMenu(event, 'menu-<?php echo $s['user_id']; ?>')"><i class='bx bx-dots-vertical-rounded'></i></button>
                                                     <div id="menu-<?php echo $s['user_id']; ?>" class="dropdown-content">
-                                                        <a href="?view_id=<?php echo $s['user_id']; ?>" style="display:block; padding:12px 16px; color:var(--dark); text-decoration:none; font-size:0.85rem; font-weight:600; text-align:left;"><i class='bx bx-id-card'></i> View Profile</a>
+                                                        <a href="?view_id=<?php echo $s['user_id']; ?>"><i class='bx bx-id-card'></i> View Profile</a>
                                                         
                                                         <form method="POST">
                                                             <input type="hidden" name="student_id" value="<?php echo $s['user_id']; ?>">
                                                             <input type="hidden" name="current_class_id" value="<?php echo $class['class_id']; ?>">
+                                                            
+                                                            <div class="dropdown-header">ACADEMIC</div>
                                                             <button type="submit" name="promote_student"><i class='bx bx-up-arrow-alt'></i> Promote</button>
                                                             <button type="submit" name="demote_student"><i class='bx bx-down-arrow-alt'></i> Demote</button>
-                                                            <button type="submit" name="delete_student" class="danger" onclick="return confirm('Are you sure you want to remove this student? This cannot be undone.');"><i class='bx bx-trash'></i> Remove</button>
+                                                            
+                                                            <div class="dropdown-header">LEADERSHIP</div>
+                                                            <button type="submit" name="assign_role" value="Head Boy"><i class='bx bxs-star'></i> Make Head Boy</button>
+                                                            <button type="submit" name="assign_role" value="Head Girl"><i class='bx bxs-star'></i> Make Head Girl</button>
+                                                            <button type="submit" name="assign_role" value="Prefect"><i class='bx bxs-badge'></i> Make Prefect</button>
+                                                            <?php if($s['leadership_role']): ?>
+                                                                <button type="submit" name="assign_role" value="None" style="color:#666;"><i class='bx bx-x-circle'></i> Remove Role</button>
+                                                            <?php endif; ?>
+
+                                                            <div class="dropdown-header">DANGER ZONE</div>
+                                                            <button type="submit" name="delete_student" class="danger" onclick="return confirm('Are you sure?');"><i class='bx bx-trash'></i> Remove User</button>
                                                         </form>
                                                     </div>
                                                 </div>
@@ -373,14 +420,10 @@ if ($view_student_id) {
         if (!event.target.matches('.action-btn') && !event.target.matches('.action-btn i')) {
             var dropdowns = document.getElementsByClassName("dropdown-content");
             for (var i = 0; i < dropdowns.length; i++) {
-                if (dropdowns[i].classList.contains('show')) {
-                    dropdowns[i].classList.remove('show');
-                }
+                if (dropdowns[i].classList.contains('show')) { dropdowns[i].classList.remove('show'); }
             }
         }
-        if (event.target.classList.contains('modal')) {
-            event.target.style.display = 'none';
-        }
+        if (event.target.classList.contains('modal')) { event.target.style.display = 'none'; }
     }
 </script>
 

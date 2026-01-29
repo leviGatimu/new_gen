@@ -11,11 +11,8 @@ $student_id = $_SESSION['user_id'];
 $message = "";
 
 // --- 1. FETCH STUDENT INFO & PARENT LINK STATUS ---
-// Old line: 
-// $stmt = $pdo->prepare("SELECT u.full_name, s.admission_number, s.class_id, s.class_role, s.parent_access_code, ...");
-
-// NEW CORRECT LINE (Matches your database screenshot):
-$stmt = $pdo->prepare("SELECT u.full_name, u.access_key AS parent_access_code, s.admission_number, s.class_id, s.class_role, c.class_name,
+// Updated query: Fetch access_key from users table as parent_access_code
+$stmt = $pdo->prepare("SELECT u.full_name, u.access_key AS parent_access_code, s.admission_number, s.class_id, s.leadership_role AS class_role, c.class_name,
                         (SELECT COUNT(*) FROM parent_student_link WHERE student_id = s.student_id) as is_linked 
                         FROM users u 
                         JOIN students s ON u.user_id = s.student_id 
@@ -25,19 +22,11 @@ $stmt->execute([$student_id]);
 $me = $stmt->fetch(PDO::FETCH_ASSOC);
 
 $my_class_id = $me['class_id'];
-$my_role = $me['class_role'];
+$my_role = $me['class_role']; // This now holds leadership_role (e.g., 'Head Boy', 'Prefect')
 
-// --- 2. HANDLE PRESIDENT ANNOUNCEMENTS ---
-if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['post_announcement'])) {
-    if ($my_role === 'President' && !empty($_POST['msg'])) {
-        $msg = "🔔 Class Announcement: " . trim($_POST['msg']);
-        // Send as 'system' type so it looks official
-        $stmt = $pdo->prepare("INSERT INTO messages (sender_id, class_id, message, msg_type) VALUES (?, ?, ?, 'system')");
-        if($stmt->execute([$student_id, $my_class_id, $msg])) {
-            $message = "Announcement posted successfully!";
-        }
-    }
-}
+// --- 2. CHECK LEADERSHIP STATUS ---
+$is_leader = in_array($my_role, ['Head Boy', 'Head Girl']);
+$is_prefect = ($my_role === 'Prefect');
 
 // --- 3. CALCULATE DASHBOARD STATS ---
 
@@ -67,16 +56,14 @@ $overall_avg = ($total_max > 0) ? round(($total_obtained / $total_max) * 100) : 
 // --- 4. SYSTEM LOGIC: FIND CLASS #1 (Top Performer) ---
 $top_student_id = null;
 $highest_avg = -1;
-$is_top_student = false; // Initialize to false
+$is_top_student = false;
 
 if ($my_class_id) {
-    // Get all students in my class
     $peers_stmt = $pdo->prepare("SELECT student_id FROM students WHERE class_id = ?");
     $peers_stmt->execute([$my_class_id]);
     $all_students = $peers_stmt->fetchAll(PDO::FETCH_COLUMN);
 
     foreach ($all_students as $sid) {
-        // Calculate Avg for Peer
         $q1 = $pdo->prepare("SELECT SUM(score) as s, SUM(max_score) as m FROM student_marks m JOIN class_assessments a ON m.assessment_id = a.assessment_id WHERE m.student_id = ?");
         $q1->execute([$sid]);
         $r1 = $q1->fetch();
@@ -95,7 +82,7 @@ if ($my_class_id) {
         }
     }
 }
-// Only display if there's actually a highest average > 0
+
 if ($highest_avg > 0 && $student_id == $top_student_id) {
     $is_top_student = true;
 }
@@ -139,19 +126,6 @@ $announcements = $msg_stmt->fetchAll();
         .role-widget.rank-one .role-icon { background: #fff1b8; box-shadow: 0 0 15px #ffe58f; font-size: 2.5rem; }
         .role-widget.rank-one h3 { color: #d48806; }
         
-        .role-widget.president { border-left: 5px solid #faad14; }
-        .role-widget.president .role-icon { background: #fff7e6; color: #faad14; }
-        
-        .role-widget.vp { border-left: 5px solid #69c0ff; }
-        .role-widget.vp .role-icon { background: #e6f7ff; color: #1890ff; }
-
-        .role-widget.devotion { border-left: 5px solid #722ed1; }
-        .role-widget.devotion .role-icon { background: #f9f0ff; color: #722ed1; }
-
-        .role-widget.timekeeper { border-left: 5px solid #52c41a; }
-        .role-widget.timekeeper .role-icon { background: #f6ffed; color: #52c41a; }
-
-        /* Animation for #1 */
         .shine-effect { position: absolute; top: 0; left: -100%; width: 50%; height: 100%; background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.8) 50%, rgba(255,255,255,0) 100%); transform: skewX(-25deg); animation: shine 6s infinite; }
         @keyframes shine { 0% { left: -100%; } 20% { left: 200%; } 100% { left: 200%; } }
 
@@ -180,10 +154,6 @@ $announcements = $msg_stmt->fetchAll();
         .announcement-item:last-child { border-bottom: none; }
         .ann-time { font-size: 0.75rem; color: #999; }
         .ann-text { font-size: 0.9rem; color: #333; margin: 5px 0 0; }
-
-        /* President Form */
-        .pres-form textarea { width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 10px; font-family: inherit; }
-        .btn-post { background: var(--dark); color: white; border: none; padding: 8px 15px; border-radius: 6px; cursor: pointer; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -203,8 +173,8 @@ $announcements = $msg_stmt->fetchAll();
             <i class='bx bxs-chat'></i> <span>Ranking</span>
         </a>
         <a href="profile.php" class="nav-item">
-    <i class='bx bxs-user-circle'></i> <span>Profile</span>
-</a>
+            <i class='bx bxs-user-circle'></i> <span>Profile</span>
+        </a>
     </div>
     <a href="../logout.php" class="btn-logout">Logout</a>
 </nav>
@@ -222,47 +192,27 @@ $announcements = $msg_stmt->fetchAll();
     </div>
     <?php endif; ?>
 
-    <?php if ($my_role == 'President'): ?>
-        <div class="role-widget president">
-            <div class="role-icon"><i class='bx bxs-crown'></i></div>
-            <div class="role-content">
-                <h3>Class President</h3>
-                <p>You have the authority to post announcements to the class board.</p>
-            </div>
-        </div>
-    <?php elseif ($my_role == 'Vice President'): ?>
-        <div class="role-widget vp">
-            <div class="role-icon"><i class='bx bxs-shield-alt-2'></i></div>
-            <div class="role-content">
-                <h3>Vice President</h3>
-                <p>Support the President and help maintain order.</p>
-            </div>
-        </div>
-    <?php elseif ($my_role == 'Devotion Leader'): ?>
-        <div class="role-widget devotion">
-            <div class="role-icon"><i class='bx bxs-book-heart'></i></div>
-            <div class="role-content">
-                <h3>Devotion Leader</h3>
-                <p>Prepare the scripture for today's assembly.</p>
-            </div>
-        </div>
-    <?php elseif ($my_role == 'Time Keeper'): ?>
-        <div class="role-widget timekeeper">
-            <div class="role-icon"><i class='bx bxs-timer'></i></div>
-            <div class="role-content">
-                <h3>Time Keeper</h3>
-                <p>Ensure all class activities start and end on schedule.</p>
-            </div>
-        </div>
-    <?php endif; ?>
-
     <div class="dashboard-grid">
         
         <div class="left-col">
             <div class="card welcome-header">
-                <h1>Hello, <?php echo htmlspecialchars($me['full_name']); ?></h1>
-                <p style="color:#637381; margin:5px 0;">Ready to learn something new today?</p>
-                <span class="class-tag"><?php echo htmlspecialchars($me['class_name'] ?? 'No Class'); ?> • <?php echo htmlspecialchars($me['admission_number']); ?></span>
+                <div style="display:flex; justify-content:space-between; align-items:start;">
+                    <div>
+                        <h1>Hello, <?php echo htmlspecialchars($me['full_name']); ?></h1>
+                        <p style="color:#637381; margin:5px 0;">Ready to learn something new today?</p>
+                        <span class="class-tag"><?php echo htmlspecialchars($me['class_name'] ?? 'No Class'); ?> • <?php echo htmlspecialchars($me['admission_number']); ?></span>
+                        
+                        <?php if($is_leader): ?>
+                            <span style="background:#FFD700; color:black; padding:4px 10px; border-radius:20px; font-weight:800; font-size:0.8rem; text-transform:uppercase; margin-left:10px;">
+                                <i class='bx bxs-crown'></i> <?php echo $me['class_role']; ?>
+                            </span>
+                        <?php elseif($is_prefect): ?>
+                            <span style="background:#e3f2fd; color:#007bff; padding:4px 10px; border-radius:20px; font-weight:800; font-size:0.8rem; text-transform:uppercase; margin-left:10px;">
+                                <i class='bx bxs-badge-check'></i> Prefect
+                            </span>
+                        <?php endif; ?>
+                    </div>
+                </div>
 
                 <div class="stats-row">
                     <div class="mini-stat">
@@ -280,6 +230,20 @@ $announcements = $msg_stmt->fetchAll();
                         </div>
                     </div>
                 </div>
+
+                <div style="margin-top:15px; border-top:1px dashed #eee; padding-top:15px;">
+                    
+                    <?php if($is_leader): ?>
+                        <a href="leadership_hub.php" style="display:inline-block; background:#212b36; color:#FFD700; padding:10px 20px; border-radius:8px; text-decoration:none; font-weight:bold; margin-right:10px;">
+                            <i class='bx bxs-dashboard'></i> Open Leadership Hub
+                        </a>
+                    <?php endif; ?>
+
+                    <button onclick="document.getElementById('issueModal').style.display='flex'" style="background:none; border:1px solid #ff4d4f; color:#ff4d4f; padding:10px 20px; border-radius:8px; cursor:pointer; font-weight:bold;">
+                        <i class='bx bx-error-circle'></i> Report Problem
+                    </button>
+
+                </div>
             </div>
 
             <div class="card">
@@ -296,16 +260,6 @@ $announcements = $msg_stmt->fetchAll();
                             <div class="ann-time"><?php echo date("d M, H:i", strtotime($ann['created_at'])); ?></div>
                         </div>
                     <?php endforeach; ?>
-                <?php endif; ?>
-
-                <?php if($my_role === 'President'): ?>
-                    <div style="margin-top:20px; background:#f9fafb; padding:15px; border-radius:10px; border:1px solid #eee;">
-                        <h4 style="margin:0 0 10px 0;">📢 Post Announcement</h4>
-                        <form method="POST" class="pres-form">
-                            <textarea name="msg" rows="2" placeholder="Write a message for your class..." required></textarea>
-                            <button type="submit" name="post_announcement" class="btn-post">Post to Board</button>
-                        </form>
-                    </div>
                 <?php endif; ?>
             </div>
         </div>
@@ -347,6 +301,23 @@ $announcements = $msg_stmt->fetchAll();
             </div>
         </div>
 
+    </div>
+</div>
+
+<div id="issueModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); align-items:center; justify-content:center; z-index:9999;">
+    <div style="background:white; width:90%; max-width:500px; padding:30px; border-radius:12px;">
+        <h3 style="margin-top:0;">Report to Student Government</h3>
+        <p style="color:#666; font-size:0.9rem;">Your message will be sent to the Head Boy/Girl for review.</p>
+        
+        <form method="POST" action="submit_issue.php">
+            <input type="text" name="title" placeholder="Subject (e.g. Broken Desk)" style="width:100%; padding:10px; margin-bottom:10px; box-sizing:border-box; border:1px solid #ccc; border-radius:6px;" required>
+            <textarea name="description" rows="4" placeholder="Describe the issue..." style="width:100%; padding:10px; margin-bottom:15px; box-sizing:border-box; border:1px solid #ccc; border-radius:6px;" required></textarea>
+            
+            <div style="text-align:right;">
+                <button type="button" onclick="document.getElementById('issueModal').style.display='none'" style="background:#eee; color:#333; border:none; padding:10px 20px; border-radius:6px; cursor:pointer; margin-right:10px;">Cancel</button>
+                <button type="submit" style="background:#FF6600; color:white; border:none; padding:10px 20px; border-radius:6px; cursor:pointer;">Submit Report</button>
+            </div>
+        </form>
     </div>
 </div>
 
