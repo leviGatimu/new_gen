@@ -156,6 +156,7 @@ $teachers = $stmt->fetchAll();
         <a href="classes.php" class="nav-item">
             <i class='bx bxs-school'></i> <span>Classes</span>
         </a>
+          <a href="finance_report.php" class="nav-item"><i class='bx bxs-bar-chart-alt-2'></i> <span>Finance</span></a>
         <a href="settings.php" class="nav-item">
             <i class='bx bxs-cog'></i> <span>Settings</span>
         </a>

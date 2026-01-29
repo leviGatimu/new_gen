@@ -165,6 +165,7 @@ $broadcasts = $recent_broadcasts->fetchAll();
         <a href="dashboard.php" class="nav-item active"><i class='bx bxs-dashboard'></i> <span>Dashboard</span></a>
         <a href="students.php" class="nav-item"><i class='bx bxs-user-detail'></i> <span>Students</span></a>
         <a href="teachers.php" class="nav-item"><i class='bx bxs-id-card'></i> <span>Teachers</span></a>
+        <a href="classes.php" class="nav-item"><i class='bx bxs-school'></i> <span>Classes</span></a>
         <a href="finance_report.php" class="nav-item"><i class='bx bxs-bar-chart-alt-2'></i> <span>Finance</span></a>
         <a href="settings.php" class="nav-item"><i class='bx bxs-cog'></i> <span>Settings</span></a>
     </div>

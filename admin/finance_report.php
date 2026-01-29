@@ -18,7 +18,6 @@ $total_expenses = $exp_stmt->fetchColumn() ?: 0;
 $net_profit = $total_income - $total_expenses;
 
 // --- 2. GET TERMLY BREAKDOWN (System Generated) ---
-// Groups payments by the 'term' column saved during payment
 $term_stmt = $pdo->query("
     SELECT term, SUM(amount) as term_total, COUNT(*) as transaction_count, MAX(payment_date) as last_payment 
     FROM fee_payments 
@@ -44,98 +43,120 @@ $cat_data = $cat_stmt->fetchAll();
     <title>Financial Report | NGA Admin</title>
     <link rel="stylesheet" href="../assets/css/style.css">
     <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
+    
     <style>
-        :root { --primary: #FF6600; --dark: #212b36; --light: #f4f6f8; --white: #ffffff; --border: #dfe3e8; }
-        body { background: var(--light); font-family: 'Public Sans', sans-serif; margin: 0; padding: 0; display: flex; }
+        /* === THEME VARIABLES (MATCHING DASHBOARD) === */
+        :root { --primary: #FF6600; --primary-hover: #e65c00; --dark: #212b36; --light-bg: #f4f6f8; --white: #ffffff; --border: #dfe3e8; --nav-height: 75px; }
+        html, body { background-color: var(--light-bg); margin: 0; padding: 0; font-family: 'Public Sans', sans-serif; overflow-y: auto; }
+
+        /* === NAV === */
+        .top-navbar { position: fixed; top: 0; left: 0; width: 100%; height: var(--nav-height); background: var(--white); z-index: 1000; display: flex; justify-content: space-between; align-items: center; padding: 0 40px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); border-bottom: 1px solid var(--border); box-sizing: border-box; }
+        .nav-brand { display: flex; align-items: center; gap: 15px; text-decoration: none; }
+        .logo-box { width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; }
+        .logo-box img { width: 80%; height: 80%; object-fit: contain; }
+        .nav-brand-text { font-size: 1.25rem; font-weight: 800; color: var(--dark); letter-spacing: -0.5px; }
         
-        /* SIDEBAR */
-        .sidebar { width: 250px; background: var(--dark); min-height: 100vh; color: white; padding: 20px; box-sizing: border-box; position: fixed; }
-        .brand { font-size: 1.5rem; font-weight: 800; color: var(--primary); display: flex; align-items: center; gap: 10px; margin-bottom: 40px; }
-        .menu a { display: flex; align-items: center; gap: 15px; color: #b0b0b0; text-decoration: none; padding: 12px; border-radius: 8px; transition: 0.2s; margin-bottom: 5px; }
-        .menu a:hover { background: rgba(255,255,255,0.1); color: white; }
-        .menu a.active { background: var(--primary); color: white; }
+        .nav-menu { display: flex; gap: 5px; align-items: center; }
+        .nav-item { text-decoration: none; color: #637381; font-weight: 600; font-size: 0.95rem; padding: 10px 15px; border-radius: 8px; transition: 0.2s; display: flex; align-items: center; gap: 6px; }
+        .nav-item:hover { color: var(--primary); background: rgba(255, 102, 0, 0.05); }
+        .nav-item.active { background: var(--primary); color: white; }
+        .btn-logout { text-decoration: none; color: #ff4d4f; font-weight: 700; font-size: 0.85rem; padding: 8px 16px; border: 1.5px solid #ff4d4f; border-radius: 8px; transition: 0.2s; }
+        .btn-logout:hover { background: #ff4d4f; color: white; }
 
-        /* CONTENT */
-        .content { margin-left: 250px; padding: 40px; width: 100%; max-width: 1200px; }
+        /* === MAIN CONTENT === */
+        .main-content { margin-top: var(--nav-height); padding: 40px 5%; max-width: 1400px; margin-left: auto; margin-right: auto; }
 
-        /* HEADER */
-        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
-        .page-title { margin: 0; color: var(--dark); font-size: 1.8rem; }
-        .btn-print { background: var(--dark); color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-weight: bold; }
-        .btn-print:hover { background: var(--primary); }
+        /* Welcome Banner style reused for Header */
+        .welcome-banner { background: var(--white); padding: 30px; border-radius: 16px; margin-bottom: 35px; border: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 12px rgba(0,0,0,0.03); background: linear-gradient(120deg, #fff 0%, #fffbf7 100%); }
 
-        /* METRIC CARDS */
-        .overview-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 40px; }
-        .metric-card { background: white; padding: 25px; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 4px 10px rgba(0,0,0,0.02); }
-        .metric-title { font-size: 0.85rem; font-weight: 700; color: #637381; text-transform: uppercase; margin-bottom: 10px; }
-        .metric-val { font-size: 2rem; font-weight: 800; color: var(--dark); }
+        /* Stats Grid */
+        .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 25px; margin-bottom: 40px; }
+        .stat-card { background: var(--white); padding: 25px; border-radius: 16px; border: 1px solid var(--border); box-shadow: 0 2px 4px rgba(0,0,0,0.02); transition: 0.3s; position: relative; }
+        .stat-label { font-size: 0.85rem; color: #637381; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+        .stat-number { font-size: 2.2rem; font-weight: 800; color: var(--dark); margin: 12px 0; }
+        .stat-trend { font-size: 0.85rem; font-weight: 600; }
 
-        /* REPORT TABLES */
-        .report-section { background: white; border-radius: 16px; border: 1px solid #dfe3e8; padding: 30px; margin-bottom: 30px; box-shadow: 0 4px 10px rgba(0,0,0,0.02); }
-        .sec-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #eee; }
-        .sec-title { margin: 0; color: var(--dark); font-size: 1.2rem; display: flex; align-items: center; gap: 10px; }
+        /* Report Sections (Card Style) */
+        .report-card { background: white; border-radius: 16px; border: 1px solid var(--border); padding: 30px; box-shadow: 0 4px 12px rgba(0,0,0,0.02); margin-bottom: 30px; }
+        .sec-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #f4f6f8; }
+        .sec-title { margin: 0; color: var(--dark); font-size: 1.1rem; font-weight: 700; display: flex; align-items: center; gap: 10px; }
 
+        /* Tables */
         table { width: 100%; border-collapse: collapse; }
-        th { text-align: left; padding: 15px; background: #f9fafb; color: #637381; font-size: 0.85rem; text-transform: uppercase; border-bottom: 2px solid #eee; }
-        td { padding: 15px; border-bottom: 1px solid #eee; color: var(--dark); font-weight: 600; vertical-align: middle; }
+        th { text-align: left; padding: 15px; background: #f9fafb; color: #637381; font-size: 0.85rem; text-transform: uppercase; font-weight: 700; }
+        td { padding: 15px; border-bottom: 1px solid #f4f6f8; color: var(--dark); font-weight: 600; vertical-align: middle; font-size: 0.95rem; }
         tr:last-child td { border-bottom: none; }
 
-        /* PROGRESS BARS */
-        .bar-container { background: #eee; height: 8px; width: 100px; border-radius: 4px; overflow: hidden; display: inline-block; vertical-align: middle; margin-left: 10px; }
+        /* Bars */
+        .bar-container { background: #eee; height: 6px; width: 100px; border-radius: 4px; overflow: hidden; display: inline-block; vertical-align: middle; margin-left: 10px; }
         .bar-fill { height: 100%; background: var(--primary); }
-        
-        /* PRINT MODE */
+
+        /* Print Button */
+        .btn-print { background: var(--dark); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: 0.2s; }
+        .btn-print:hover { background: var(--primary); }
+
+        /* Print Styles */
         @media print {
-            .sidebar, .btn-print { display: none; }
-            .content { margin: 0; padding: 20px; max-width: 100%; }
+            .top-navbar, .btn-print { display: none; }
+            .main-content { margin: 0; padding: 0; max-width: 100%; }
             body { background: white; }
-            .metric-card, .report-section { border: 1px solid #000; box-shadow: none; }
+            .report-card, .stat-card { border: 1px solid #000; box-shadow: none; page-break-inside: avoid; }
         }
     </style>
 </head>
 <body>
 
-<div class="sidebar">
-    <div class="brand"><i class='bx bxs-school'></i> NGA Admin</div>
-    <div class="menu">
-        <a href="dashboard.php"><i class='bx bxs-dashboard'></i> Dashboard</a>
-        <a href="students.php"><i class='bx bxs-user-detail'></i> Students</a>
-        <a href="teachers.php"><i class='bx bxs-id-card'></i> Teachers</a>
-        <a href="finance_report.php" class="active"><i class='bx bxs-bar-chart-alt-2'></i> Financial Reports</a>
-        <a href="../logout.php" style="margin-top: 50px; color: #ff4d4f;"><i class='bx bx-log-out'></i> Logout</a>
+<nav class="top-navbar">
+    <a href="dashboard.php" class="nav-brand">
+        <div class="logo-box"><img src="../assets/images/logo.png" alt="NGA"></div>
+        <span class="nav-brand-text">NGA Admin</span>
+    </a>
+    <div class="nav-menu">
+        <a href="dashboard.php" class="nav-item"><i class='bx bxs-dashboard'></i> <span>Dashboard</span></a>
+        <a href="students.php" class="nav-item"><i class='bx bxs-user-detail'></i> <span>Students</span></a>
+        <a href="teachers.php" class="nav-item"><i class='bx bxs-id-card'></i> <span>Teachers</span></a>
+        <a href="finance_report.php" class="nav-item active"><i class='bx bxs-bar-chart-alt-2'></i> <span>Finance</span></a>
+        <a href="settings.php" class="nav-item"><i class='bx bxs-cog'></i> <span>Settings</span></a>
     </div>
-</div>
+    <div class="nav-user"><a href="../logout.php" class="btn-logout">Logout</a></div>
+</nav>
 
-<div class="content">
+<div class="main-content">
     
-    <div class="page-header">
+    <div class="welcome-banner">
         <div>
-            <h1 class="page-title">System Financial Report</h1>
-            <p style="color:#666; margin:5px 0 0;">Generated on <?php echo date("d M Y, H:i"); ?></p>
+            <h2 style="margin:0; font-size:1.8rem; color:var(--dark);">Financial Report</h2>
+            <p style="color: #637381; margin: 5px 0 0; font-size: 0.95rem;">System generated analysis of school finances.</p>
         </div>
-        <button onclick="window.print()" class="btn-print"><i class='bx bxs-printer'></i> Print Report</button>
+        <div>
+            <button onclick="window.print()" class="btn-print"><i class='bx bxs-printer'></i> Print Report</button>
+        </div>
     </div>
 
-    <div class="overview-grid">
-        <div class="metric-card">
-            <div class="metric-title">Total Revenue (All Time)</div>
-            <div class="metric-val" style="color:#00ab55;">RWF <?php echo number_format($total_income); ?></div>
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-label">Total Revenue</div>
+            <div class="stat-number" style="color:#00ab55;">RWF <?php echo number_format($total_income); ?></div>
+            <div class="stat-trend">All Time Collected</div>
         </div>
-        <div class="metric-card">
-            <div class="metric-title">Total Expenses (All Time)</div>
-            <div class="metric-val" style="color:#ff4d4f;">RWF <?php echo number_format($total_expenses); ?></div>
+        <div class="stat-card">
+            <div class="stat-label">Total Expenses</div>
+            <div class="stat-number" style="color:#ff4d4f;">RWF <?php echo number_format($total_expenses); ?></div>
+            <div class="stat-trend">Operational Costs</div>
         </div>
-        <div class="metric-card">
-            <div class="metric-title">Net School Balance</div>
-            <div class="metric-val" style="color:<?php echo $net_profit > 0 ? '#212b36' : 'red'; ?>;">
+        <div class="stat-card">
+            <div class="stat-label">Net Balance</div>
+            <div class="stat-number" style="color:<?php echo $net_profit > 0 ? '#212b36' : 'red'; ?>;">
                 RWF <?php echo number_format($net_profit); ?>
             </div>
+            <div class="stat-trend">Available Funds</div>
         </div>
     </div>
 
-    <div class="report-section">
+    <div class="report-card">
         <div class="sec-header">
             <h3 class="sec-title"><i class='bx bxs-calendar'></i> Termly Income Breakdown</h3>
+            <span style="color:#637381; font-size:0.85rem;">Grouped by Term</span>
         </div>
 
         <table>
@@ -174,9 +195,10 @@ $cat_data = $cat_stmt->fetchAll();
         </table>
     </div>
 
-    <div class="report-section">
+    <div class="report-card">
         <div class="sec-header">
             <h3 class="sec-title"><i class='bx bxs-wallet-alt'></i> Expense Analysis</h3>
+            <span style="color:#637381; font-size:0.85rem;">Grouped by Category</span>
         </div>
         <table>
             <thead>
