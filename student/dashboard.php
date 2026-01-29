@@ -3,6 +3,7 @@
 session_start();
 require '../config/db.php';
 
+// 1. SECURITY CHECK
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'student') {
     header("Location: ../index.php"); exit;
 }
@@ -10,8 +11,11 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'student') {
 $student_id = $_SESSION['user_id'];
 $message = "";
 
-// --- 1. FETCH STUDENT INFO & PARENT LINK STATUS ---
-// Updated query: Fetch access_key from users table as parent_access_code
+// 2. SET PAGE TITLE & INCLUDE HEADER
+$page_title = "Student Dashboard";
+include '../includes/header.php';
+
+// --- 3. FETCH STUDENT INFO ---
 $stmt = $pdo->prepare("SELECT u.full_name, u.access_key AS parent_access_code, s.admission_number, s.class_id, s.leadership_role AS class_role, c.class_name,
                         (SELECT COUNT(*) FROM parent_student_link WHERE student_id = s.student_id) as is_linked 
                         FROM users u 
@@ -22,20 +26,19 @@ $stmt->execute([$student_id]);
 $me = $stmt->fetch(PDO::FETCH_ASSOC);
 
 $my_class_id = $me['class_id'];
-$my_role = $me['class_role']; // This now holds leadership_role (e.g., 'Head Boy', 'Prefect')
+$my_role = $me['class_role'];
 
-// --- 2. CHECK LEADERSHIP STATUS ---
+// --- 4. CHECK LEADERSHIP STATUS ---
 $is_leader = in_array($my_role, ['Head Boy', 'Head Girl']);
 $is_prefect = ($my_role === 'Prefect');
 
-// --- 3. CALCULATE DASHBOARD STATS ---
-
-// A. Subject Count
+// --- 5. STATS ---
+// Subject Count
 $sub_stmt = $pdo->prepare("SELECT COUNT(*) FROM class_subjects WHERE class_id = ?");
 $sub_stmt->execute([$my_class_id]);
 $subject_count = $sub_stmt->fetchColumn();
 
-// B. Overall Average
+// Overall Avg Calculation
 $avg_query = "SELECT 
         (SUM(COALESCE(sm.score, 0)) + SUM(COALESCE(sub.obtained_marks, 0))) as total_score,
         (SUM(COALESCE(ca.max_score, 0)) + SUM(COALESCE(oa.total_marks, 0))) as total_max
@@ -48,12 +51,9 @@ $avg_query = "SELECT
 $avg_stmt = $pdo->prepare($avg_query);
 $avg_stmt->execute([$student_id]);
 $stats = $avg_stmt->fetch(PDO::FETCH_ASSOC);
+$overall_avg = ($stats['total_max'] > 0) ? round(($stats['total_score'] / $stats['total_max']) * 100) : 0;
 
-$total_obtained = $stats['total_score'] ?? 0;
-$total_max = $stats['total_max'] ?? 0;
-$overall_avg = ($total_max > 0) ? round(($total_obtained / $total_max) * 100) : 0;
-
-// --- 4. SYSTEM LOGIC: FIND CLASS #1 (Top Performer) ---
+// --- 6. TOP STUDENT LOGIC ---
 $top_student_id = null;
 $highest_avg = -1;
 $is_top_student = false;
@@ -64,10 +64,12 @@ if ($my_class_id) {
     $all_students = $peers_stmt->fetchAll(PDO::FETCH_COLUMN);
 
     foreach ($all_students as $sid) {
+        // Physical Marks
         $q1 = $pdo->prepare("SELECT SUM(score) as s, SUM(max_score) as m FROM student_marks m JOIN class_assessments a ON m.assessment_id = a.assessment_id WHERE m.student_id = ?");
         $q1->execute([$sid]);
         $r1 = $q1->fetch();
         
+        // Online Marks
         $q2 = $pdo->prepare("SELECT SUM(obtained_marks) as s, SUM(total_marks) as m FROM assessment_submissions s JOIN online_assessments o ON s.assessment_id = o.id WHERE s.student_id = ? AND s.is_marked = 1");
         $q2->execute([$sid]);
         $r2 = $q2->fetch();
@@ -87,67 +89,46 @@ if ($highest_avg > 0 && $student_id == $top_student_id) {
     $is_top_student = true;
 }
 
-// --- 5. FETCH RECENT ANNOUNCEMENTS ---
+// --- 7. FETCH ANNOUNCEMENTS ---
 $msg_sql = "SELECT message, created_at FROM messages WHERE class_id = ? AND msg_type = 'system' ORDER BY created_at DESC LIMIT 3";
 $msg_stmt = $pdo->prepare($msg_sql);
 $msg_stmt->execute([$my_class_id]);
 $announcements = $msg_stmt->fetchAll();
 ?>
 
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <title>Student Dashboard | NGA</title>
-    <link rel="stylesheet" href="../assets/css/style.css">
-    <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
+<div class="container">
+
     <style>
-        :root { --primary: #FF6600; --dark: #212b36; --light-bg: #f4f6f8; --white: #ffffff; --border: #dfe3e8; }
-        body { background: var(--light-bg); font-family: 'Public Sans', sans-serif; margin: 0; padding-bottom: 50px; }
-
-        /* Navbar */
-        .top-navbar { position: fixed; top: 0; width: 100%; height: 70px; background: white; border-bottom: 1px solid #dfe3e8; display: flex; justify-content: space-between; align-items: center; padding: 0 40px; box-sizing: border-box; z-index: 100; }
-        .nav-brand { font-weight: 800; font-size: 1.2rem; display: flex; align-items: center; gap: 10px; color: var(--dark); text-decoration: none; }
-        .nav-menu { display: flex; gap: 10px; }
-        .nav-item { color: #637381; text-decoration: none; font-weight: 600; padding: 8px 15px; border-radius: 6px; transition: 0.2s; }
-        .nav-item:hover, .nav-item.active { color: var(--primary); background: rgba(255, 102, 0, 0.05); }
-        .btn-logout { color: #ff4d4f; border: 1px solid #ff4d4f; padding: 6px 15px; border-radius: 6px; text-decoration: none; font-weight: bold; }
-
-        /* Layout */
-        .container { max-width: 1200px; margin: 100px auto 0; padding: 0 20px; }
-        
-        /* --- ROLE WIDGETS --- */
+        /* Role Widgets */
         .role-widget { background: white; border-radius: 16px; padding: 25px; margin-bottom: 25px; display: flex; align-items: center; gap: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); position: relative; overflow: hidden; }
         .role-icon { width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 2rem; flex-shrink: 0; }
         .role-content h3 { margin: 0 0 5px 0; font-size: 1.3rem; color: #212b36; }
         .role-content p { margin: 0; color: #637381; font-size: 0.95rem; }
 
-        /* Role Themes */
+        /* Rank 1 Widget */
         .role-widget.rank-one { background: linear-gradient(135deg, #fff 0%, #fffbe6 100%); border: 1px solid #ffe58f; }
-        .role-widget.rank-one .role-icon { background: #fff1b8; box-shadow: 0 0 15px #ffe58f; font-size: 2.5rem; }
-        .role-widget.rank-one h3 { color: #d48806; }
-        
+        .role-widget.rank-one .role-icon { background: #fff1b8; color: #d48806; }
         .shine-effect { position: absolute; top: 0; left: -100%; width: 50%; height: 100%; background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.8) 50%, rgba(255,255,255,0) 100%); transform: skewX(-25deg); animation: shine 6s infinite; }
         @keyframes shine { 0% { left: -100%; } 20% { left: 200%; } 100% { left: 200%; } }
 
-        /* --- DASHBOARD GRID --- */
+        /* Dashboard Layout */
         .dashboard-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 25px; }
-        .left-col { display: flex; flex-direction: column; gap: 20px; }
-        .right-col { display: flex; flex-direction: column; gap: 20px; }
+        @media (max-width: 900px) { .dashboard-grid { grid-template-columns: 1fr; } }
 
         /* Cards */
-        .card { background: white; border-radius: 16px; border: 1px solid var(--border); padding: 25px; box-shadow: 0 4px 12px rgba(0,0,0,0.02); }
-        .welcome-header h1 { margin: 0; color: var(--dark); }
+        .card { background: white; border-radius: 16px; border: 1px solid #dfe3e8; padding: 25px; box-shadow: 0 4px 12px rgba(0,0,0,0.02); }
+        .welcome-header h1 { margin: 0; color: #212b36; font-size: 1.8rem; }
         .class-tag { display: inline-block; background: #e3f2fd; color: #1565c0; padding: 4px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: bold; margin-top: 10px; }
 
-        /* Stats Row */
+        /* Stats */
         .stats-row { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; }
         .mini-stat { background: #f9fafb; padding: 15px; border-radius: 12px; display: flex; align-items: center; gap: 15px; }
-        .mini-icon { font-size: 1.5rem; color: var(--primary); }
+        .mini-icon { font-size: 1.5rem; color: #FF6600; }
 
-        /* Parent Code Box */
-        .code-box { background: #fff0e6; border: 1px dashed var(--primary); padding: 15px; text-align: center; border-radius: 10px; margin: 15px 0; }
-        .code-text { font-size: 1.4rem; font-weight: 800; letter-spacing: 2px; color: var(--dark); }
-        .btn-copy { background: var(--primary); color: white; border: none; padding: 8px 15px; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%; }
+        /* Parent Code */
+        .code-box { background: #fff0e6; border: 1px dashed #FF6600; padding: 15px; text-align: center; border-radius: 10px; margin: 15px 0; }
+        .code-text { font-size: 1.4rem; font-weight: 800; letter-spacing: 2px; color: #212b36; }
+        .btn-copy { background: #FF6600; color: white; border: none; padding: 8px 15px; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%; }
 
         /* Announcements */
         .announcement-item { border-bottom: 1px solid #f0f0f0; padding: 10px 0; }
@@ -155,31 +136,6 @@ $announcements = $msg_stmt->fetchAll();
         .ann-time { font-size: 0.75rem; color: #999; }
         .ann-text { font-size: 0.9rem; color: #333; margin: 5px 0 0; }
     </style>
-</head>
-<body>
-
-<nav class="top-navbar">
-    <a href="dashboard.php" class="nav-brand">
-        <div style="width:40px;"><img src="../assets/images/logo.png" alt="" style="width:100%;"></div>
-        Student Portal
-    </a>
-    <div class="nav-menu">
-        <a href="dashboard.php" class="nav-item active"><i class='bx bxs-dashboard'></i> Dashboard</a>
-        <a href="academics.php" class="nav-item"><i class='bx bxs-graduation'></i> Academics</a>
-        <a href="results.php" class="nav-item"><i class='bx bxs-bar-chart-alt-2'></i> My Results</a>
-        <a href="messages.php" class="nav-item"><i class='bx bxs-chat'></i> Messages</a>
-        <a href="attendance.php" class="nav-item"><i class='bx bxs-calendar-check'></i> <span>Attendance</span></a>
-         <a href="class_ranking.php" class="nav-item">
-            <i class='bx bxs-chat'></i> <span>Ranking</span>
-        </a>
-        <a href="profile.php" class="nav-item">
-            <i class='bx bxs-user-circle'></i> <span>Profile</span>
-        </a>
-    </div>
-    <a href="../logout.php" class="btn-logout">Logout</a>
-</nav>
-
-<div class="container">
 
     <?php if ($is_top_student): ?>
     <div class="role-widget rank-one">
@@ -196,18 +152,19 @@ $announcements = $msg_stmt->fetchAll();
         
         <div class="left-col">
             <div class="card welcome-header">
-                <div style="display:flex; justify-content:space-between; align-items:start;">
-                    <div>
-                        <h1>Hello, <?php echo htmlspecialchars($me['full_name']); ?></h1>
-                        <p style="color:#637381; margin:5px 0;">Ready to learn something new today?</p>
+                <div>
+                    <h1>Hello, <?php echo htmlspecialchars($me['full_name']); ?></h1>
+                    <p style="color:#637381; margin:5px 0;">Ready to learn something new today?</p>
+                    
+                    <div style="margin-top:10px; display:flex; flex-wrap:wrap; gap:5px;">
                         <span class="class-tag"><?php echo htmlspecialchars($me['class_name'] ?? 'No Class'); ?> • <?php echo htmlspecialchars($me['admission_number']); ?></span>
                         
                         <?php if($is_leader): ?>
-                            <span style="background:#FFD700; color:black; padding:4px 10px; border-radius:20px; font-weight:800; font-size:0.8rem; text-transform:uppercase; margin-left:10px;">
+                            <span style="background:#FFD700; color:black; padding:4px 10px; border-radius:20px; font-weight:800; font-size:0.8rem; text-transform:uppercase;">
                                 <i class='bx bxs-crown'></i> <?php echo $me['class_role']; ?>
                             </span>
                         <?php elseif($is_prefect): ?>
-                            <span style="background:#e3f2fd; color:#007bff; padding:4px 10px; border-radius:20px; font-weight:800; font-size:0.8rem; text-transform:uppercase; margin-left:10px;">
+                            <span style="background:#e3f2fd; color:#007bff; padding:4px 10px; border-radius:20px; font-weight:800; font-size:0.8rem; text-transform:uppercase;">
                                 <i class='bx bxs-badge-check'></i> Prefect
                             </span>
                         <?php endif; ?>
@@ -231,23 +188,21 @@ $announcements = $msg_stmt->fetchAll();
                     </div>
                 </div>
 
-                <div style="margin-top:15px; border-top:1px dashed #eee; padding-top:15px;">
-                    
+                <div style="margin-top:20px; border-top:1px dashed #eee; padding-top:15px; display:flex; flex-wrap:wrap; gap:10px;">
                     <?php if($is_leader): ?>
-                        <a href="leadership_hub.php" style="display:inline-block; background:#212b36; color:#FFD700; padding:10px 20px; border-radius:8px; text-decoration:none; font-weight:bold; margin-right:10px;">
-                            <i class='bx bxs-dashboard'></i> Open Leadership Hub
+                        <a href="leadership_hub.php" style="display:inline-flex; align-items:center; gap:8px; background:#212b36; color:#FFD700; padding:12px 20px; border-radius:8px; text-decoration:none; font-weight:bold;">
+                            <i class='bx bxs-dashboard'></i> Leadership Hub
                         </a>
                     <?php endif; ?>
 
-                    <button onclick="document.getElementById('issueModal').style.display='flex'" style="background:none; border:1px solid #ff4d4f; color:#ff4d4f; padding:10px 20px; border-radius:8px; cursor:pointer; font-weight:bold;">
+                    <button onclick="document.getElementById('issueModal').style.display='flex'" style="background:none; border:1px solid #ff4d4f; color:#ff4d4f; padding:10px 20px; border-radius:8px; cursor:pointer; font-weight:bold; display:inline-flex; align-items:center; gap:8px;">
                         <i class='bx bx-error-circle'></i> Report Problem
                     </button>
-
                 </div>
             </div>
 
-            <div class="card">
-                <h3 style="margin-top:0; border-bottom:1px solid #eee; padding-bottom:10px;">
+            <div class="card" style="margin-top:25px;">
+                <h3 style="margin-top:0; border-bottom:1px solid #eee; padding-bottom:10px; color:#212b36;">
                     <i class='bx bxs-bell'></i> Class Board
                 </h3>
                 
@@ -265,8 +220,8 @@ $announcements = $msg_stmt->fetchAll();
         </div>
 
         <div class="right-col">
-            <div class="card" style="border-top: 4px solid var(--primary);">
-                <h3 style="margin-top:0; font-size:1rem;">Parent Access</h3>
+            <div class="card" style="border-top: 4px solid #FF6600;">
+                <h3 style="margin-top:0; font-size:1rem; color:#212b36;">Parent Access</h3>
                 
                 <?php if ($me['is_linked'] > 0): ?>
                     <div style="text-align:center; padding:10px;">
@@ -287,16 +242,13 @@ $announcements = $msg_stmt->fetchAll();
                 <?php endif; ?>
             </div>
 
-            <div class="card">
-                <h3 style="margin-top:0; font-size:1rem;">Quick Links</h3>
-                <a href="results.php" style="display:block; padding:10px; margin-bottom:5px; background:#f4f6f8; border-radius:8px; text-decoration:none; color:var(--dark); font-weight:600;">
+            <div class="card" style="margin-top:25px;">
+                <h3 style="margin-top:0; font-size:1rem; color:#212b36;">Quick Links</h3>
+                <a href="results.php" style="display:block; padding:10px; margin-bottom:5px; background:#f4f6f8; border-radius:8px; text-decoration:none; color:#212b36; font-weight:600;">
                     📊 View Report Card
                 </a>
-                <a href="messages.php" style="display:block; padding:10px; background:#f4f6f8; border-radius:8px; text-decoration:none; color:var(--dark); font-weight:600;">
+                <a href="messages.php" style="display:block; padding:10px; background:#f4f6f8; border-radius:8px; text-decoration:none; color:#212b36; font-weight:600;">
                     💬 Class Chat
-                </a>
-                <a href="class_ranking.php" style="display:block; padding:10px; margin-top:5px; background:#f4f6f8; border-radius:8px; text-decoration:none; color:var(--dark); font-weight:600;">
-                    🏆 Leaderboard
                 </a>
             </div>
         </div>
