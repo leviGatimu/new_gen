@@ -3,13 +3,18 @@
 session_start();
 require '../config/db.php';
 
+// 1. SECURITY CHECK
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'student') {
     header("Location: ../index.php"); exit;
 }
 
 $student_id = $_SESSION['user_id'];
+$page_title = "My Attendance";
 
-// 1. CALCULATE OVERALL STATS
+// 2. INCLUDE HEADER
+include '../includes/header.php';
+
+// 3. CALCULATE OVERALL STATS
 $total_sql = "SELECT 
                 COUNT(*) as total_classes,
                 SUM(CASE WHEN status IN ('Present', 'Late') THEN 1 ELSE 0 END) as present_count
@@ -28,8 +33,7 @@ $status_label = "Excellent";
 if($attendance_pct < 85) { $gauge_color = '#ffc107'; $status_label = "Average"; } // Orange
 if($attendance_pct < 65) { $gauge_color = '#ff4d4f'; $status_label = "Warning"; } // Red
 
-// 2. FETCH PER SUBJECT STATS
-// We group by subject to show specific attendance for each class
+// 4. FETCH PER SUBJECT STATS
 $sub_sql = "SELECT s.subject_name,
             COUNT(*) as total,
             SUM(CASE WHEN a.status IN ('Present', 'Late') THEN 1 ELSE 0 END) as present,
@@ -46,124 +50,79 @@ $sub_stmt->execute([$student_id]);
 $subjects = $sub_stmt->fetchAll();
 ?>
 
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>My Attendance | NGA</title>
-    <link rel="stylesheet" href="../assets/css/style.css">
-    <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
-    <style>
-        /* === SHARED VARIABLES === */
-        :root { --primary: #FF6600; --dark: #212b36; --light-bg: #f0f2f5; --white: #ffffff; --nav-height: 75px; }
-        body { background: var(--light-bg); font-family: 'Public Sans', sans-serif; margin: 0; padding-bottom: 80px; }
+<style>
+    /* === PAGE SPECIFIC CSS === */
+    
+    /* HERO SECTION */
+    .hero-section {
+        margin-top: 0; /* Header handles spacing */
+        background: linear-gradient(135deg, #212b36 0%, #161c24 100%);
+        color: white; padding: 50px 5% 90px;
+        display: flex; justify-content: space-between; align-items: center;
+        border-radius: 0 0 20px 20px;
+    }
+    .hero-text h1 { margin: 0 0 10px 0; font-size: 2.2rem; }
+    .hero-text p { color: rgba(255,255,255,0.7); margin: 0; }
 
-        /* HEADER */
-        .top-navbar {
-            position: fixed; top: 0; width: 100%; height: var(--nav-height);
-            background: rgba(255,255,255,0.95); backdrop-filter: blur(10px); z-index: 1000;
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 0 40px; border-bottom: 1px solid rgba(0,0,0,0.05); box-sizing: border-box;
-        }
-        .nav-brand { display: flex; align-items: center; gap: 15px; text-decoration: none; font-weight: 800; color: var(--dark); font-size: 1.2rem; }
-        .logo-box { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; background: #fafbfc; border-radius: 8px; border: 1px solid #dfe3e8; }
-        .logo-box img { width: 80%; height: 80%; object-fit: contain; }
+    /* CIRCLE GAUGE */
+    .gauge-container { width: 130px; height: 130px; position: relative; flex-shrink: 0; }
+    .gauge-circle {
+        width: 100%; height: 100%; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        animation: scaleIn 0.5s ease-out;
+    }
+    .gauge-inner {
+        width: 85%; height: 85%; background: #212b36; border-radius: 50%;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+    }
+    .pct-num { font-size: 2.2rem; font-weight: 800; line-height: 1; color: white; }
+    .pct-label { font-size: 0.75rem; text-transform: uppercase; color: rgba(255,255,255,0.5); margin-top: 5px; }
 
-        .nav-menu { display: flex; gap: 5px; align-items: center; }
-        .nav-item { text-decoration: none; color: #637381; font-weight: 600; font-size: 0.95rem; padding: 10px 15px; border-radius: 8px; transition: 0.2s; display: flex; align-items: center; gap: 6px; }
-        .nav-item:hover { color: var(--primary); background: rgba(255, 102, 0, 0.05); }
-        .nav-item.active { background: var(--primary); color: white; }
-        .btn-logout { text-decoration: none; color: #ff4d4f; font-weight: 700; font-size: 0.85rem; padding: 8px 16px; border: 1.5px solid #ff4d4f; border-radius: 8px; transition: 0.2s; }
-        .btn-logout:hover { background: #ff4d4f; color: white; }
+    /* MAIN GRID */
+    .grid-container {
+        max-width: 1200px; margin: -50px auto 0; padding: 0 20px;
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 25px;
+    }
 
-        /* HERO SECTION */
-        .hero-section {
-            margin-top: var(--nav-height);
-            background: linear-gradient(135deg, #212b36 0%, #161c24 100%);
-            color: white; padding: 50px 5% 90px;
-            display: flex; justify-content: space-between; align-items: center;
-        }
-        .hero-text h1 { margin: 0 0 10px 0; font-size: 2.2rem; }
-        .hero-text p { color: rgba(255,255,255,0.7); margin: 0; }
+    /* SUBJECT CARDS */
+    .att-card {
+        background: white; border-radius: 16px; padding: 25px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+        animation: slideUp 0.5s ease forwards; opacity: 0; transform: translateY(20px);
+    }
+    @keyframes slideUp { to { opacity: 1; transform: translateY(0); } }
+    @keyframes scaleIn { from { transform: scale(0.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 
-        /* CIRCLE GAUGE */
-        .gauge-container { width: 130px; height: 130px; position: relative; }
-        .gauge-circle {
-            width: 100%; height: 100%; border-radius: 50%;
-            /* PHP Gradient moved to inline style in body to avoid VS Code errors */
-            display: flex; align-items: center; justify-content: center;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-            animation: scaleIn 0.5s ease-out;
-        }
-        .gauge-inner {
-            width: 85%; height: 85%; background: #212b36; border-radius: 50%;
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-        }
-        .pct-num { font-size: 2.2rem; font-weight: 800; line-height: 1; color: white; }
-        .pct-label { font-size: 0.75rem; text-transform: uppercase; color: rgba(255,255,255,0.5); margin-top: 5px; }
+    .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .sub-title { font-size: 1.1rem; font-weight: 800; color: var(--dark); display: flex; align-items: center; gap: 10px; }
+    .status-badge { padding: 5px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
 
-        /* MAIN GRID */
-        .grid-container {
-            max-width: 1200px; margin: -50px auto 0; padding: 0 20px;
-            display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 25px;
-        }
+    /* PROGRESS BARS */
+    .progress-row { margin-bottom: 15px; }
+    .progress-info { display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 5px; font-weight: 600; color: #637381; }
+    .progress-bg { width: 100%; height: 8px; background: #f0f0f0; border-radius: 4px; overflow: hidden; }
+    .progress-fill { height: 100%; border-radius: 4px; transition: width 1s ease; }
 
-        /* SUBJECT CARDS */
-        .att-card {
-            background: white; border-radius: 16px; padding: 25px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.05);
-            animation: slideUp 0.5s ease forwards; opacity: 0; transform: translateY(20px);
-        }
-        @keyframes slideUp { to { opacity: 1; transform: translateY(0); } }
-        @keyframes scaleIn { from { transform: scale(0.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    /* STATS ROW */
+    .stats-mini-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 20px; padding-top: 15px; border-top: 1px dashed #dfe3e8; }
+    .mini-stat { text-align: center; }
+    .mini-val { display: block; font-weight: 800; font-size: 1.1rem; color: var(--dark); }
+    .mini-lbl { font-size: 0.7rem; color: #919eab; text-transform: uppercase; }
 
-        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .sub-title { font-size: 1.1rem; font-weight: 800; color: var(--dark); display: flex; align-items: center; gap: 10px; }
-        .status-badge { padding: 5px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
+    /* EMPTY STATE */
+    .empty-state {
+        grid-column: 1 / -1; background: white; padding: 60px; text-align: center;
+        border-radius: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.05);
+    }
 
-        /* PROGRESS BARS */
-        .progress-row { margin-bottom: 15px; }
-        .progress-info { display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 5px; font-weight: 600; color: #637381; }
-        .progress-bg { width: 100%; height: 8px; background: #f0f0f0; border-radius: 4px; overflow: hidden; }
-        .progress-fill { height: 100%; border-radius: 4px; transition: width 1s ease; }
-
-        /* STATS ROW */
-        .stats-mini-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 20px; padding-top: 15px; border-top: 1px dashed #dfe3e8; }
-        .mini-stat { text-align: center; }
-        .mini-val { display: block; font-weight: 800; font-size: 1.1rem; color: var(--dark); }
-        .mini-lbl { font-size: 0.7rem; color: #919eab; text-transform: uppercase; }
-
-        /* EMPTY STATE */
-        .empty-state {
-            grid-column: 1 / -1; background: white; padding: 60px; text-align: center;
-            border-radius: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.05);
-        }
-    </style>
-</head>
-<body>
-
-
-
-<nav class="top-navbar">
-    <a href="dashboard.php" class="nav-brand">
-        <div style="width:40px;"><img src="../assets/images/logo.png" alt="" style="width:100%;"></div>
-        Student Portal
-    </a>
-    <div class="nav-menu">
-        <a href="dashboard.php" class="nav-item"><i class='bx bxs-dashboard'></i> Dashboard</a>
-        <a href="academics.php" class="nav-item"><i class='bx bxs-graduation'></i> Academics</a>
-        <a href="results.php" class="nav-item"><i class='bx bxs-bar-chart-alt-2'></i> My Results</a>
-        <a href="messages.php" class="nav-item"><i class='bx bxs-chat'></i> Messages</a>
-        <a href="attendance.php" class="nav-item active"><i class='bx bxs-calendar-check'></i> <span>Attendance</span></a>
-         <a href="class_ranking.php" class="nav-item">
-            <i class='bx bxs-chat'></i> <span>Ranking</span>
-        </a>
-        <a href="profile.php" class="nav-item">
-    <i class='bx bxs-user-circle'></i> <span>Profile</span>
-</a>
-    </div>
-    <a href="../logout.php" class="btn-logout">Logout</a>
-</nav>
+    /* MOBILE RESPONSIVE */
+    @media (max-width: 768px) {
+        .hero-section { flex-direction: column; text-align: center; gap: 20px; padding: 40px 20px 80px; }
+        .hero-text h1 { font-size: 1.8rem; }
+        .grid-container { grid-template-columns: 1fr; }
+    }
+</style>
 
 <div class="hero-section">
     <div class="hero-text">

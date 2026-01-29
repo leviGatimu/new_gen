@@ -9,225 +9,191 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'student') {
 }
 
 $student_id = $_SESSION['user_id'];
-$page_title = "Messages"; // For header.php
+$page_title = "Messages";
 
-// 2. FETCH CONTACTS (Teachers)
-// You might want to filter this by "Teachers of my class" later, but for now, all teachers.
+// 2. FETCH USER INFO (For Class ID)
+$stmt = $pdo->prepare("SELECT s.class_id, c.class_name 
+                       FROM students s 
+                       JOIN classes c ON s.class_id = c.class_id 
+                       WHERE s.student_id = ?");
+$stmt->execute([$student_id]);
+$me = $stmt->fetch();
+$my_class_id = $me['class_id'];
+$my_class_name = $me['class_name'];
+
+// 3. FETCH TEACHERS (Direct Contacts)
 $teachers = $pdo->query("SELECT user_id, full_name FROM users WHERE role = 'teacher' ORDER BY full_name ASC")->fetchAll();
 
-// 3. DETERMINE ACTIVE CHAT
-$active_id = $_GET['chat'] ?? null;
-$active_contact = null;
+// 4. DETERMINE ACTIVE VIEW
+// mode = 'private' (default), 'class', 'global'
+$mode = $_GET['mode'] ?? 'global'; 
+$chat_id = $_GET['id'] ?? 0; // User ID for private, Class ID for class
 
-if ($active_id) {
-    // Verify contact exists
-    $stmt = $pdo->prepare("SELECT user_id, full_name FROM users WHERE user_id = ?");
-    $stmt->execute([$active_id]);
-    $active_contact = $stmt->fetch();
-}
-
-// 4. HANDLE SENDING
+// 5. HANDLE SENDING
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['send'])) {
-    $receiver = $_POST['receiver_id'];
     $text = trim($_POST['message']);
     
     if($text) {
-        $stmt = $pdo->prepare("INSERT INTO messages (sender_id, receiver_id, message, created_at) VALUES (?, ?, ?, NOW())");
-        $stmt->execute([$student_id, $receiver, $text]);
-        header("Location: messages.php?chat=" . $receiver); exit;
+        if ($_POST['msg_type'] == 'private') {
+            $stmt = $pdo->prepare("INSERT INTO messages (sender_id, receiver_id, message, msg_type, created_at) VALUES (?, ?, ?, 'private', NOW())");
+            $stmt->execute([$student_id, $_POST['target_id'], $text]);
+            header("Location: messages.php?mode=private&id=" . $_POST['target_id']); 
+        } 
+        elseif ($_POST['msg_type'] == 'class') {
+            $stmt = $pdo->prepare("INSERT INTO messages (sender_id, class_id, message, msg_type, created_at) VALUES (?, ?, ?, 'class', NOW())");
+            $stmt->execute([$student_id, $my_class_id, $text]);
+            header("Location: messages.php?mode=class"); 
+        }
+        exit;
     }
 }
 
-// 5. FETCH MESSAGES
+// 6. FETCH MESSAGES BASED ON MODE
 $chats = [];
-if ($active_contact) {
-    // Mark messages from this teacher as read
-    $pdo->prepare("UPDATE messages SET is_read = 1 WHERE sender_id = ? AND receiver_id = ?")->execute([$active_id, $student_id]);
+$chat_title = "";
+$is_read_only = false;
 
-    // Fetch conversation
+if ($mode == 'global') {
+    $chat_title = "📢 School Announcements";
+    $is_read_only = true; // Students can't reply to global
+    // Fetch global messages (admin broadcasts)
+    $stmt = $pdo->query("SELECT m.*, u.full_name, u.role FROM messages m JOIN users u ON m.sender_id = u.user_id WHERE m.msg_type = 'global' OR m.msg_type = 'system' ORDER BY m.created_at ASC");
+    $chats = $stmt->fetchAll();
+
+} elseif ($mode == 'class') {
+    $chat_title = "👥 $my_class_name Group";
+    // Fetch class messages
+    $stmt = $pdo->prepare("SELECT m.*, u.full_name, u.role FROM messages m JOIN users u ON m.sender_id = u.user_id WHERE m.class_id = ? AND m.msg_type = 'class' ORDER BY m.created_at ASC");
+    $stmt->execute([$my_class_id]);
+    $chats = $stmt->fetchAll();
+
+} elseif ($mode == 'private' && $chat_id) {
+    // Get Contact Name
+    $u_stmt = $pdo->prepare("SELECT full_name FROM users WHERE user_id = ?");
+    $u_stmt->execute([$chat_id]);
+    $user_name = $u_stmt->fetchColumn();
+    $chat_title = "💬 " . $user_name;
+
+    // Fetch private chat
     $stmt = $pdo->prepare("
-        SELECT * FROM messages 
-        WHERE (sender_id = ? AND receiver_id = ?) 
-           OR (sender_id = ? AND receiver_id = ?) 
-        ORDER BY created_at ASC
+        SELECT m.*, u.full_name, u.role 
+        FROM messages m 
+        JOIN users u ON m.sender_id = u.user_id
+        WHERE (m.sender_id = ? AND m.receiver_id = ?) 
+           OR (m.sender_id = ? AND m.receiver_id = ?) 
+        ORDER BY m.created_at ASC
     ");
-    $stmt->execute([$student_id, $active_id, $active_id, $student_id]);
+    $stmt->execute([$student_id, $chat_id, $chat_id, $student_id]);
     $chats = $stmt->fetchAll();
 }
 
-// 6. INCLUDE HEADER
 include '../includes/header.php';
 ?>
 
 <style>
-    /* === CHAT LAYOUT (Matches Parent/Teacher Design) === */
-    body { overflow: hidden; /* Lock body scroll */ }
+    /* LAYOUT */
+    body { overflow: hidden; }
+    .chat-wrapper { display: flex; height: calc(100vh - 80px); background: #fff; }
+
+    /* SIDEBAR */
+    .chat-sidebar { width: 320px; border-right: 1px solid #dfe3e8; display: flex; flex-direction: column; background: #fff; flex-shrink: 0; }
     
-    .chat-wrapper {
-        display: flex;
-        height: calc(100vh - 80px); /* Fill remaining height */
-        background: #fff;
+    .sb-section { padding: 15px 20px 5px; font-size: 0.75rem; font-weight: 800; color: #919eab; text-transform: uppercase; letter-spacing: 0.5px; }
+    .sb-list { overflow-y: auto; flex: 1; }
+
+    .chat-item {
+        padding: 12px 20px; display: flex; align-items: center; gap: 12px;
+        text-decoration: none; color: var(--dark); border-bottom: 1px solid #f9fafb; transition: 0.2s;
     }
+    .chat-item:hover { background: #f4f6f8; }
+    .chat-item.active { background: #fff7e6; border-right: 3px solid var(--primary); }
 
-    /* --- SIDEBAR (Contacts) --- */
-    .chat-sidebar {
-        width: 350px;
-        border-right: 1px solid #dfe3e8;
-        background: #fff;
-        display: flex;
-        flex-direction: column;
-        flex-shrink: 0;
-    }
+    .c-icon { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; }
+    .c-global { background: #e3f2fd; color: #1976d2; }
+    .c-class { background: #f3e5f5; color: #7b1fa2; }
+    .c-user { background: #e0e6ed; color: #637381; font-size: 0.9rem; font-weight: 700; }
 
-    .contacts-header {
-        padding: 20px;
-        border-bottom: 1px solid #f0f0f0;
-        background: #fff;
-    }
-    .contacts-header h2 { margin: 0; font-size: 1.2rem; color: var(--dark); }
-
-    .contacts-list { flex: 1; overflow-y: auto; }
-
-    .contact-item {
-        display: flex; align-items: center; gap: 15px;
-        padding: 15px 20px;
-        border-bottom: 1px solid #f9fafb;
-        text-decoration: none;
-        color: var(--dark);
-        transition: 0.2s;
-        cursor: pointer;
-    }
-    .contact-item:hover { background: #f4f6f8; }
-    .contact-item.active { background: #fff7e6; border-right: 3px solid var(--primary); }
-
-    .avatar {
-        width: 45px; height: 45px;
-        background: #e0e6ed; color: #637381;
-        border-radius: 50%;
-        display: flex; align-items: center; justify-content: center;
-        font-weight: 700; font-size: 1rem;
-        flex-shrink: 0;
-    }
-    .contact-item.active .avatar { background: var(--primary); color: white; }
-
-    /* --- MAIN CHAT AREA --- */
-    .chat-main {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        background: #f4f6f8;
-        position: relative;
-    }
-
+    /* MAIN AREA */
+    .chat-main { flex: 1; display: flex; flex-direction: column; background: #f4f6f8; position: relative; }
+    
     .chat-header {
-        padding: 15px 25px;
-        background: white;
-        border-bottom: 1px solid #dfe3e8;
-        display: flex; align-items: center; gap: 15px;
-        height: 70px; box-sizing: border-box;
+        height: 60px; background: white; border-bottom: 1px solid #dfe3e8; 
+        display: flex; align-items: center; padding: 0 20px; gap: 15px;
+        font-weight: 800; font-size: 1.1rem; color: var(--dark);
     }
-    
-    .back-btn { display: none; font-size: 1.5rem; color: #637381; cursor: pointer; text-decoration: none; }
+    .back-btn { display: none; font-size: 1.5rem; color: #637381; text-decoration: none; }
 
-    .messages-container {
-        flex: 1;
-        padding: 25px;
-        overflow-y: auto;
-        display: flex;
-        flex-direction: column;
-        gap: 15px;
-        background-image: radial-gradient(#e0e0e0 1px, transparent 1px);
-        background-size: 20px 20px;
+    .msgs-container {
+        flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;
+        background-image: radial-gradient(#e0e0e0 1px, transparent 1px); background-size: 20px 20px;
     }
 
-    /* Bubbles */
-    .msg-row { display: flex; width: 100%; }
+    /* BUBBLES */
+    .msg-row { display: flex; width: 100%; margin-bottom: 5px; }
     .msg-row.sent { justify-content: flex-end; }
     .msg-row.received { justify-content: flex-start; }
 
-    .msg-bubble {
-        max-width: 70%;
-        padding: 12px 18px;
-        border-radius: 18px;
-        font-size: 0.95rem;
-        line-height: 1.5;
-        position: relative;
+    .bubble {
+        max-width: 70%; padding: 10px 15px; border-radius: 12px; font-size: 0.95rem; line-height: 1.4; position: relative;
         box-shadow: 0 2px 5px rgba(0,0,0,0.05);
     }
+    .sent .bubble { background: var(--primary); color: white; border-bottom-right-radius: 2px; }
+    .received .bubble { background: white; color: var(--dark); border-bottom-left-radius: 2px; border: 1px solid #e0e0e0; }
+
+    .sender-name { font-size: 0.7rem; font-weight: 700; margin-bottom: 3px; display: block; opacity: 0.8; }
+    .sent .sender-name { display: none; } /* Hide my own name */
+    .received .sender-name { color: var(--primary); }
     
-    .msg-row.sent .msg-bubble {
-        background: var(--primary);
-        color: white;
-        border-bottom-right-radius: 4px;
-    }
-    
-    .msg-row.received .msg-bubble {
-        background: white;
-        color: var(--dark);
-        border-bottom-left-radius: 4px;
-        border: 1px solid #e0e0e0;
-    }
+    .admin-tag { background: #000; color: #fff; padding: 2px 4px; border-radius: 4px; font-size: 0.6rem; margin-left: 5px; }
 
-    .msg-time { display: block; font-size: 0.7rem; margin-top: 5px; opacity: 0.8; text-align: right; }
+    /* FOOTER */
+    .chat-footer { padding: 15px; background: white; border-top: 1px solid #dfe3e8; }
+    .input-box { display: flex; gap: 10px; background: #f9fafb; padding: 8px; border-radius: 30px; border: 1px solid #dfe3e8; }
+    .chat-input { flex: 1; border: none; background: transparent; padding: 8px 15px; outline: none; }
+    .send-btn { background: var(--primary); color: white; border: none; width: 35px; height: 35px; border-radius: 50%; cursor: pointer; display:flex; align-items:center; justify-content:center; }
 
-    /* Footer */
-    .chat-footer { padding: 20px; background: white; border-top: 1px solid #dfe3e8; }
-    .input-group {
-        display: flex; gap: 10px; background: #f9fafb;
-        padding: 8px; border-radius: 30px; border: 1px solid #dfe3e8;
-    }
-    .chat-input {
-        flex: 1; border: none; background: transparent;
-        padding: 10px 15px; outline: none; font-family: inherit;
-    }
-    .btn-send {
-        background: var(--primary); color: white; border: none;
-        width: 40px; height: 40px; border-radius: 50%;
-        cursor: pointer; display: flex; align-items: center; justify-content: center;
-        transition: 0.2s;
-    }
-    .btn-send:hover { transform: scale(1.05); }
-
-    /* Empty State */
-    .empty-chat {
-        display: flex; flex-direction: column;
-        align-items: center; justify-content: center;
-        height: 100%; color: #919eab;
-    }
-
-    /* === MOBILE RESPONSIVE === */
+    /* MOBILE */
     @media (max-width: 768px) {
         .chat-wrapper { height: calc(100vh - 70px); }
         .chat-sidebar { width: 100%; display: flex; }
         .chat-main { display: none; width: 100%; }
-
-        /* Mobile Logic: Show main if active, else sidebar */
-        <?php if ($active_id): ?>
-            .chat-sidebar { display: none; }
-            .chat-main { display: flex; }
-            .back-btn { display: block; }
-        <?php else: ?>
-            .chat-sidebar { display: flex; }
-            .chat-main { display: none; }
-        <?php endif; ?>
+        
+        .chat-wrapper.active .chat-sidebar { display: none; }
+        .chat-wrapper.active .chat-main { display: flex; }
+        .chat-wrapper.active .back-btn { display: block; }
     }
 </style>
 
-<div class="chat-wrapper">
-    
+<div class="chat-wrapper <?php echo ($mode != 'none') ? 'active' : ''; ?>">
+
     <div class="chat-sidebar">
-        <div class="contacts-header">
-            <h2>Messages</h2>
+        
+        <div class="sb-section">Groups</div>
+        <div class="sb-list" style="flex: 0 0 auto;">
+            <a href="messages.php?mode=global" class="chat-item <?php echo $mode=='global'?'active':''; ?>">
+                <div class="c-icon c-global"><i class='bx bx-broadcast'></i></div>
+                <div>
+                    <div style="font-weight:700;">Announcements</div>
+                    <div style="font-size:0.8rem; color:#637381;">School Board</div>
+                </div>
+            </a>
+            <a href="messages.php?mode=class" class="chat-item <?php echo $mode=='class'?'active':''; ?>">
+                <div class="c-icon c-class"><i class='bx bx-group'></i></div>
+                <div>
+                    <div style="font-weight:700;"><?php echo htmlspecialchars($my_class_name); ?></div>
+                    <div style="font-size:0.8rem; color:#637381;">Class Group Chat</div>
+                </div>
+            </a>
         </div>
-        <div class="contacts-list">
+
+        <div class="sb-section" style="border-top:1px solid #f0f0f0; margin-top:10px; padding-top:15px;">Teachers</div>
+        <div class="sb-list">
             <?php foreach($teachers as $t): ?>
-                <a href="messages.php?chat=<?php echo $t['user_id']; ?>" class="contact-item <?php echo $active_id == $t['user_id'] ? 'active' : ''; ?>">
-                    <div class="avatar">
-                        <?php echo substr($t['full_name'], 0, 1); ?>
-                    </div>
+                <a href="messages.php?mode=private&id=<?php echo $t['user_id']; ?>" class="chat-item <?php echo ($mode=='private' && $chat_id==$t['user_id'])?'active':''; ?>">
+                    <div class="c-icon c-user"><?php echo substr($t['full_name'], 0, 1); ?></div>
                     <div>
                         <div style="font-weight:700;"><?php echo htmlspecialchars($t['full_name']); ?></div>
-                        <div style="font-size:0.8rem; color:#637381;">Teacher</div>
+                        <div style="font-size:0.8rem; color:#637381;">Direct Message</div>
                     </div>
                 </a>
             <?php endforeach; ?>
@@ -235,52 +201,54 @@ include '../includes/header.php';
     </div>
 
     <div class="chat-main">
-        <?php if($active_contact): ?>
-            <div class="chat-header">
-                <a href="messages.php" class="back-btn"><i class='bx bx-arrow-back'></i></a>
-                <div class="avatar" style="background:var(--primary); color:white;">
-                    <?php echo substr($active_contact['full_name'], 0, 1); ?>
-                </div>
-                <div>
-                    <div style="font-weight:800; font-size:1rem;"><?php echo htmlspecialchars($active_contact['full_name']); ?></div>
-                    <div style="font-size:0.75rem; color:#00ab55; font-weight:600;">• Online</div>
-                </div>
-            </div>
+        <div class="chat-header">
+            <a href="messages.php" class="back-btn"><i class='bx bx-arrow-back'></i></a>
+            <span><?php echo $chat_title; ?></span>
+        </div>
 
-            <div class="messages-container" id="scrollBox">
-                <?php if(empty($chats)): ?>
-                    <div class="empty-chat" style="height:auto; margin-top:50px;">
-                        <span style="background:#e0f7fa; color:#006064; padding:5px 15px; border-radius:20px; font-size:0.8rem;">
-                            Say Hello!
-                        </span>
-                    </div>
-                <?php else: ?>
-                    <?php foreach($chats as $c): ?>
-                        <div class="msg-row <?php echo $c['sender_id'] == $student_id ? 'sent' : 'received'; ?>">
-                            <div class="msg-bubble">
-                                <?php echo nl2br(htmlspecialchars($c['message'])); ?>
-                                <span class="msg-time"><?php echo date('H:i', strtotime($c['created_at'])); ?></span>
-                            </div>
+        <div class="msgs-container" id="scrollBox">
+            <?php if(empty($chats)): ?>
+                <div style="text-align:center; margin-top:50px; color:#919eab;">
+                    <i class='bx bx-message-dots' style="font-size:3rem; opacity:0.3;"></i>
+                    <p>No messages yet.</p>
+                </div>
+            <?php else: ?>
+                <?php foreach($chats as $msg): 
+                    $is_me = ($msg['sender_id'] == $student_id);
+                ?>
+                <div class="msg-row <?php echo $is_me ? 'sent' : 'received'; ?>">
+                    <div class="bubble">
+                        <?php if(!$is_me): ?>
+                            <span class="sender-name">
+                                <?php echo htmlspecialchars($msg['full_name']); ?>
+                                <?php if($msg['role'] == 'admin') echo '<span class="admin-tag">ADMIN</span>'; ?>
+                                <?php if($msg['role'] == 'teacher') echo '<span class="admin-tag" style="background:#007bff;">TEACHER</span>'; ?>
+                            </span>
+                        <?php endif; ?>
+                        
+                        <?php echo nl2br(htmlspecialchars($msg['message'])); ?>
+                        
+                        <div style="text-align:right; font-size:0.65rem; opacity:0.6; margin-top:5px;">
+                            <?php echo date("H:i", strtotime($msg['created_at'])); ?>
                         </div>
-                    <?php endforeach; ?>
-                <?php endif; ?>
-            </div>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+            <?php endif; ?>
+        </div>
 
+        <?php if(!$is_read_only): ?>
             <div class="chat-footer">
-                <form method="POST" class="input-group">
-                    <input type="hidden" name="receiver_id" value="<?php echo $active_id; ?>">
+                <form method="POST" class="input-box">
+                    <input type="hidden" name="msg_type" value="<?php echo $mode; ?>">
+                    <input type="hidden" name="target_id" value="<?php echo $chat_id; ?>">
                     <input type="text" name="message" class="chat-input" placeholder="Type a message..." autocomplete="off" required>
-                    <button type="submit" name="send" class="btn-send">
-                        <i class='bx bxs-send'></i>
-                    </button>
+                    <button type="submit" name="send" class="send-btn"><i class='bx bxs-send'></i></button>
                 </form>
             </div>
-
         <?php else: ?>
-            <div class="empty-chat">
-                <i class='bx bxs-chat' style="font-size:4rem; margin-bottom:20px; opacity:0.2;"></i>
-                <h3>Select a Teacher</h3>
-                <p>Choose a teacher from the list to start messaging.</p>
+            <div class="chat-footer" style="text-align:center; color:#919eab; font-size:0.8rem;">
+                <i class='bx bxs-lock-alt'></i> Only Admins can post in Announcements.
             </div>
         <?php endif; ?>
     </div>
@@ -288,7 +256,6 @@ include '../includes/header.php';
 </div>
 
 <script>
-    // Auto-scroll logic
     var box = document.getElementById('scrollBox');
     if(box) { box.scrollTop = box.scrollHeight; }
 </script>
