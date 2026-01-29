@@ -137,34 +137,20 @@ $teachers = $stmt->fetchAll();
 
 <nav class="top-navbar">
     <a href="dashboard.php" class="nav-brand">
-        <div class="logo-box">
-            <img src="../assets/images/logo.png" alt="NGA">
-        </div>
+        <div class="logo-box"><img src="../assets/images/logo.png" alt="NGA"></div>
         <span class="nav-brand-text">NGA Admin</span>
     </a>
-
     <div class="nav-menu">
-        <a href="dashboard.php" class="nav-item">
-            <i class='bx bxs-dashboard'></i> <span>Dashboard</span>
-        </a>
-        <a href="students.php" class="nav-item">
-            <i class='bx bxs-user-detail'></i> <span>Students</span>
-        </a>
-        <a href="teachers.php" class="nav-item active">
-            <i class='bx bxs-id-card'></i> <span>Teachers</span>
-        </a>
-        <a href="classes.php" class="nav-item">
-            <i class='bx bxs-school'></i> <span>Classes</span>
-        </a>
-          <a href="finance_report.php" class="nav-item"><i class='bx bxs-bar-chart-alt-2'></i> <span>Finance</span></a>
-        <a href="settings.php" class="nav-item">
-            <i class='bx bxs-cog'></i> <span>Settings</span>
-        </a>
+        <a href="dashboard.php" class="nav-item"><i class='bx bxs-dashboard'></i> <span>Dashboard</span></a>
+        <a href="students.php" class="nav-item active"><i class='bx bxs-user-detail'></i> <span>Students</span></a>
+        <a href="teachers.php" class="nav-item"><i class='bx bxs-id-card'></i> <span>Teachers</span></a>
+        <a href="leadership.php" class="nav-item"><i class='bx bxs-star'></i>Leadership</a>
+        <a href="classes.php" class="nav-item"><i class='bx bxs-school'></i> <span>Classes</span></a>
+        <a href="finance_report.php" class="nav-item"><i class='bx bxs-bar-chart-alt-2'></i> <span>Finance</span></a>
+        <a href="events.php" class="nav-item"><i class="fa-solid fa-calendar"></i></i> <span>Events</span></a>
+        <a href="settings.php" class="nav-item"><i class='bx bxs-cog'></i> <span>Settings</span></a>
     </div>
-
-    <div class="nav-user">
-        <a href="../logout.php" class="btn-logout">Logout</a>
-    </div>
+    <div class="nav-user"><a href="../logout.php" class="btn-logout">Logout</a></div>
 </nav>
 
 <div class="main-content">

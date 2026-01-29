@@ -15,7 +15,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['remove_role'])) {
     $pdo->prepare("UPDATE students SET leadership_role = NULL WHERE student_id = ?")->execute([$s_id]);
     $message = "Role removed successfully.";
 }
-
+// 4. School Events (For Leaders)
+$school_events = $pdo->query("SELECT * FROM events WHERE event_date >= CURDATE() ORDER BY event_date ASC LIMIT 5")->fetchAll();
 // Fetch All Leaders
 $sql = "SELECT u.full_name, u.email, s.student_id, s.admission_number, s.leadership_role, c.class_name 
         FROM students s 

@@ -173,6 +173,31 @@ $prefects = $pdo->query("SELECT u.full_name, s.admission_number, c.class_name FR
                 <button type="submit" name="make_prefect" style="margin-top:10px; width:100%;">Grant Status</button>
             </form>
         </div>
+        <div class="card" style="border-top: 4px solid #FF6600;">
+    <h3><i class='bx bxs-calendar-event'></i> School Event Calendar</h3>
+    <p style="font-size:0.8rem; color:#666;">Upcoming events managed by Administration.</p>
+    
+    <?php if(empty($school_events)): ?>
+        <p style="color:#999; font-style:italic;">No upcoming events.</p>
+    <?php else: ?>
+        <ul style="list-style:none; padding:0;">
+            <?php foreach($school_events as $ev): ?>
+                <li style="padding:10px 0; border-bottom:1px solid #eee;">
+                    <div style="font-weight:bold; color:#212b36; font-size:0.95rem;">
+                        <?php echo htmlspecialchars($ev['title']); ?>
+                    </div>
+                    <div style="font-size:0.8rem; color:#637381; margin-top:3px;">
+                        <i class='bx bx-calendar'></i> <?php echo date("M d", strtotime($ev['event_date'])); ?> 
+                        &bull; <i class='bx bx-time'></i> <?php echo date("H:i", strtotime($ev['event_time'])); ?>
+                    </div>
+                    <div style="font-size:0.8rem; color:#FF6600; font-weight:600; margin-top:2px;">
+                        @ <?php echo htmlspecialchars($ev['location']); ?>
+                    </div>
+                </li>
+            <?php endforeach; ?>
+        </ul>
+    <?php endif; ?>
+</div>
 
         <div class="card">
             <h3>Current Prefect Squad</h3>
