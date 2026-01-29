@@ -9,7 +9,7 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'student') {
 }
 
 $student_id = $_SESSION['user_id'];
-$message = "";
+$current_time = date("Y-m-d H:i:s");
 
 // 2. SET PAGE TITLE & INCLUDE HEADER
 $page_title = "Student Dashboard";
@@ -53,7 +53,24 @@ $avg_stmt->execute([$student_id]);
 $stats = $avg_stmt->fetch(PDO::FETCH_ASSOC);
 $overall_avg = ($stats['total_max'] > 0) ? round(($stats['total_score'] / $stats['total_max']) * 100) : 0;
 
-// --- 6. TOP STUDENT LOGIC ---
+// --- 6. FETCH DUE HOMEWORK (Assignments Only) ---
+$hw_stmt = $pdo->prepare("
+    SELECT oa.*, s.subject_name 
+    FROM online_assessments oa 
+    JOIN subjects s ON oa.subject_id = s.subject_id
+    LEFT JOIN assessment_submissions sub ON oa.id = sub.assessment_id AND sub.student_id = ?
+    WHERE oa.class_id = ? 
+      AND oa.type = 'assignment' 
+      AND oa.status = 'published'
+      AND oa.end_time > NOW()
+      AND sub.id IS NULL
+    ORDER BY oa.end_time ASC
+    LIMIT 3
+");
+$hw_stmt->execute([$student_id, $my_class_id]);
+$due_homework = $hw_stmt->fetchAll();
+
+// --- 7. TOP STUDENT LOGIC ---
 $top_student_id = null;
 $highest_avg = -1;
 $is_top_student = false;
@@ -64,12 +81,10 @@ if ($my_class_id) {
     $all_students = $peers_stmt->fetchAll(PDO::FETCH_COLUMN);
 
     foreach ($all_students as $sid) {
-        // Physical Marks
         $q1 = $pdo->prepare("SELECT SUM(score) as s, SUM(max_score) as m FROM student_marks m JOIN class_assessments a ON m.assessment_id = a.assessment_id WHERE m.student_id = ?");
         $q1->execute([$sid]);
         $r1 = $q1->fetch();
         
-        // Online Marks
         $q2 = $pdo->prepare("SELECT SUM(obtained_marks) as s, SUM(total_marks) as m FROM assessment_submissions s JOIN online_assessments o ON s.assessment_id = o.id WHERE s.student_id = ? AND s.is_marked = 1");
         $q2->execute([$sid]);
         $r2 = $q2->fetch();
@@ -89,7 +104,7 @@ if ($highest_avg > 0 && $student_id == $top_student_id) {
     $is_top_student = true;
 }
 
-// --- 7. FETCH ANNOUNCEMENTS ---
+// --- 8. FETCH ANNOUNCEMENTS ---
 $msg_sql = "SELECT message, created_at FROM messages WHERE class_id = ? AND msg_type = 'system' ORDER BY created_at DESC LIMIT 3";
 $msg_stmt = $pdo->prepare($msg_sql);
 $msg_stmt->execute([$my_class_id]);
@@ -135,6 +150,24 @@ $announcements = $msg_stmt->fetchAll();
         .announcement-item:last-child { border-bottom: none; }
         .ann-time { font-size: 0.75rem; color: #999; }
         .ann-text { font-size: 0.9rem; color: #333; margin: 5px 0 0; }
+
+        /* --- HOMEWORK CARD STYLES --- */
+        .hw-card { background: #fff7e6; border: 1px solid #ffe58f; }
+        .hw-title { color: #d48806; font-size: 1rem; font-weight: 800; display: flex; align-items: center; gap: 8px; margin: 0 0 15px 0; }
+        
+        .hw-item { 
+            background: white; border-radius: 10px; padding: 12px; margin-bottom: 10px; 
+            border-left: 4px solid #FF6600; display: flex; justify-content: space-between; align-items: center; 
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05); transition: 0.2s; text-decoration: none;
+        }
+        .hw-item:hover { transform: translateX(5px); }
+        .hw-info { flex: 1; }
+        .hw-sub { font-size: 0.75rem; font-weight: 700; color: #637381; text-transform: uppercase; }
+        .hw-name { font-size: 0.95rem; font-weight: 700; color: var(--dark); display: block; margin-top: 2px; }
+        .hw-date { font-size: 0.75rem; color: #d48806; font-weight: 600; }
+        .hw-arrow { color: #FF6600; font-size: 1.2rem; }
+        
+        .empty-hw { text-align: center; color: #919eab; font-size: 0.9rem; font-style: italic; padding: 10px; }
     </style>
 
     <?php if ($is_top_student): ?>
@@ -220,6 +253,31 @@ $announcements = $msg_stmt->fetchAll();
         </div>
 
         <div class="right-col">
+            
+            <div class="card hw-card" style="margin-bottom: 25px;">
+                <div class="hw-title">
+                    <i class='bx bxs-time-five'></i> Due Assignments
+                </div>
+                
+                <?php if(empty($due_homework)): ?>
+                    <div class="empty-hw">
+                        <i class='bx bx-check-double' style="font-size: 1.5rem;"></i>
+                        <div>No pending assignments!</div>
+                    </div>
+                <?php else: ?>
+                    <?php foreach($due_homework as $hw): ?>
+                        <a href="academics.php" class="hw-item">
+                            <div class="hw-info">
+                                <span class="hw-sub"><?php echo htmlspecialchars($hw['subject_name']); ?></span>
+                                <span class="hw-name"><?php echo htmlspecialchars($hw['title']); ?></span>
+                                <span class="hw-date">Due: <?php echo date("M d @ H:i", strtotime($hw['end_time'])); ?></span>
+                            </div>
+                            <i class='bx bx-chevron-right hw-arrow'></i>
+                        </a>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </div>
+
             <div class="card" style="border-top: 4px solid #FF6600;">
                 <h3 style="margin-top:0; font-size:1rem; color:#212b36;">Parent Access</h3>
                 
