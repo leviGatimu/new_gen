@@ -1,5 +1,5 @@
 <?php
-// parent_register.php
+// parent-register.php
 session_start();
 require 'config/db.php';
 
@@ -8,57 +8,48 @@ $success = '';
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $parent_code = trim($_POST['parent_code']);
-    $full_name   = trim($_POST['full_name']);
-    $email       = trim($_POST['email']);
-    $password    = trim($_POST['password']);
-    
-    // 1. Verify the Code: Does this code exist in the STUDENTS table?
-    // We also check if it's already linked to ensure one-time use if you want.
-    $stmt = $pdo->prepare("SELECT * FROM students WHERE parent_access_code = ?");
+    $full_name = trim($_POST['full_name']);
+    $email = trim($_POST['email']);
+    $password = trim($_POST['password']);
+
+    // 1. VERIFY THE PARENT CODE (Updated to check USERS table)
+    // We check the 'users' table because that is where you manually added the key.
+    $stmt = $pdo->prepare("SELECT u.user_id, u.full_name 
+                           FROM users u 
+                           WHERE u.access_key = ? AND u.role = 'student'");
     $stmt->execute([$parent_code]);
     $student = $stmt->fetch();
 
     if ($student) {
-        // 2. Check if Email is already taken (Standard Registration Check)
-        $checkEmail = $pdo->prepare("SELECT * FROM users WHERE email = ?");
-        $checkEmail->execute([$email]);
+        // Code is valid! Now check if parent email exists
+        $check = $pdo->prepare("SELECT user_id FROM users WHERE email = ?");
+        $check->execute([$email]);
         
-        if ($checkEmail->rowCount() > 0) {
-            $error = "This email is already registered. Please Login.";
+        if ($check->rowCount() > 0) {
+            $error = "An account with this email already exists. Please login.";
         } else {
-            // 3. Create the Parent Account
             try {
                 $pdo->beginTransaction();
 
-                // A. Insert into USERS table
-                $hashed_pass = password_hash($password, PASSWORD_DEFAULT);
-                $sql_user = "INSERT INTO users (full_name, email, password, role) VALUES (?, ?, ?, 'parent')";
-                $stmt_user = $pdo->prepare($sql_user);
-                $stmt_user->execute([$full_name, $email, $hashed_pass]);
+                // 2. CREATE PARENT ACCOUNT
+                $hash = password_hash($password, PASSWORD_DEFAULT);
+                $ins = $pdo->prepare("INSERT INTO users (full_name, email, password, role) VALUES (?, ?, ?, 'parent')");
+                $ins->execute([$full_name, $email, $hash]);
                 $parent_id = $pdo->lastInsertId();
 
-                // B. Create the LINK (The most important part)
-                // This connects the new Parent ID to the Student ID found via the code
-                $sql_link = "INSERT INTO parent_student_link (parent_id, student_id) VALUES (?, ?)";
-                $stmt_link = $pdo->prepare($sql_link);
-                $stmt_link->execute([$parent_id, $student['student_id']]);
-
-                // C. Optional: Clear the code so it can't be used again (Security)
-                // $pdo->prepare("UPDATE students SET parent_access_code = NULL WHERE student_id = ?")->execute([$student['student_id']]);
+                // 3. LINK PARENT TO STUDENT
+                $link = $pdo->prepare("INSERT INTO parent_student_link (parent_id, student_id) VALUES (?, ?)");
+                $link->execute([$parent_id, $student['user_id']]);
 
                 $pdo->commit();
+                $success = "Account created! You are now linked to " . htmlspecialchars($student['full_name']);
                 
-                // Login the user automatically
-                $_SESSION['user_id'] = $parent_id;
-                $_SESSION['role'] = 'parent';
-                $_SESSION['name'] = $full_name;
+                // Auto-login (Optional) or Redirect
+                header("Refresh: 2; url=index.php");
                 
-                header("Location: parent/dashboard.php");
-                exit;
-
             } catch (Exception $e) {
                 $pdo->rollBack();
-                $error = "System Error: " . $e->getMessage();
+                $error = "Error creating account: " . $e->getMessage();
             }
         }
     } else {
@@ -73,35 +64,47 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     <meta charset="UTF-8">
     <title>Parent Registration | NGA</title>
     <link rel="stylesheet" href="assets/css/style.css">
+    <style>
+        body { background: #f4f6f8; display: flex; align-items: center; justify-content: center; height: 100vh; font-family: 'Public Sans', sans-serif; }
+        .card { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); width: 100%; max-width: 450px; }
+        .form-control { width: 100%; padding: 12px; margin: 8px 0 20px; border: 1px solid #dfe3e8; border-radius: 8px; box-sizing: border-box; }
+        .btn-submit { width: 100%; background: #FF6600; color: white; padding: 14px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        .btn-submit:hover { background: #e65c00; }
+        .alert { padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: center; font-size: 0.9rem; }
+        .alert-error { background: #ffe7d9; color: #7a0c2e; border: 1px solid #ffa39e; }
+        .alert-success { background: #e9fcd4; color: #229a16; border: 1px solid #b7eb8f; }
+    </style>
 </head>
-<body style="background:#f4f6f8; display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif;">
+<body>
 
-<div style="background:white; padding:40px; border-radius:12px; width:100%; max-width:400px; box-shadow:0 4px 12px rgba(0,0,0,0.1);">
-    <h2 style="text-align:center; color:#212b36; margin-top:0;">Parent Registration</h2>
-    <p style="text-align:center; color:#637381; font-size:0.9rem;">Connect to your child's academic records.</p>
-    
+<div class="card">
+    <h2 style="text-align:center; margin-top:0; color:#212b36;">Parent Registration</h2>
+    <p style="text-align:center; color:#637381; margin-bottom:30px;">Connect to your child's academic records.</p>
+
     <?php if($error): ?>
-        <div style="background:#fee2e2; color:#b91c1c; padding:10px; border-radius:6px; margin-bottom:15px; text-align:center; font-size:0.9rem;">
-            <?php echo $error; ?>
-        </div>
+        <div class="alert alert-error"><?php echo $error; ?></div>
+    <?php endif; ?>
+    
+    <?php if($success): ?>
+        <div class="alert alert-success"><?php echo $success; ?></div>
     <?php endif; ?>
 
     <form method="POST">
-        <label style="font-weight:bold; font-size:0.85rem; display:block; margin-bottom:5px;">Parent Access Code</label>
-        <input type="text" name="parent_code" placeholder="e.g. PARENT-1234" required style="width:100%; padding:10px; margin-bottom:15px; border:1px solid #dfe3e8; border-radius:6px; box-sizing:border-box;">
-        
-        <label style="font-weight:bold; font-size:0.85rem; display:block; margin-bottom:5px;">Your Full Name</label>
-        <input type="text" name="full_name" placeholder="John Doe" required style="width:100%; padding:10px; margin-bottom:15px; border:1px solid #dfe3e8; border-radius:6px; box-sizing:border-box;">
+        <label style="font-weight:700; font-size:0.85rem; color:#212b36;">Parent Access Code</label>
+        <input type="text" name="parent_code" class="form-control" placeholder="e.g. NGA-7777" required>
 
-        <label style="font-weight:bold; font-size:0.85rem; display:block; margin-bottom:5px;">Email Address</label>
-        <input type="email" name="email" placeholder="parent@email.com" required style="width:100%; padding:10px; margin-bottom:15px; border:1px solid #dfe3e8; border-radius:6px; box-sizing:border-box;">
+        <label style="font-weight:700; font-size:0.85rem; color:#212b36;">Your Full Name</label>
+        <input type="text" name="full_name" class="form-control" placeholder="John Doe" required>
 
-        <label style="font-weight:bold; font-size:0.85rem; display:block; margin-bottom:5px;">Create Password</label>
-        <input type="password" name="password" placeholder="********" required style="width:100%; padding:10px; margin-bottom:20px; border:1px solid #dfe3e8; border-radius:6px; box-sizing:border-box;">
+        <label style="font-weight:700; font-size:0.85rem; color:#212b36;">Email Address</label>
+        <input type="email" name="email" class="form-control" placeholder="parent@email.com" required>
 
-        <button type="submit" style="width:100%; padding:12px; background:#FF6600; color:white; border:none; border-radius:6px; font-weight:bold; cursor:pointer;">Register & Link Account</button>
+        <label style="font-weight:700; font-size:0.85rem; color:#212b36;">Create Password</label>
+        <input type="password" name="password" class="form-control" placeholder="********" required>
+
+        <button type="submit" class="btn-submit">Register & Link Account</button>
     </form>
-    
+
     <div style="text-align:center; margin-top:20px;">
         <a href="index.php" style="color:#637381; text-decoration:none; font-size:0.9rem;">Already have an account? Login</a>
     </div>

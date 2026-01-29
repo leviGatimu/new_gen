@@ -1,4 +1,5 @@
 <?php
+// student/dashboard.php
 session_start();
 require '../config/db.php';
 
@@ -10,12 +11,16 @@ $student_id = $_SESSION['user_id'];
 $message = "";
 
 // --- 1. FETCH STUDENT INFO & PARENT LINK STATUS ---
-$stmt = $pdo->prepare("SELECT u.full_name, s.admission_number, s.class_id, s.class_role, s.parent_access_code, c.class_name,
-                       (SELECT COUNT(*) FROM parent_student_link WHERE student_id = s.student_id) as is_linked 
-                       FROM users u 
-                       JOIN students s ON u.user_id = s.student_id 
-                       LEFT JOIN classes c ON s.class_id = c.class_id 
-                       WHERE u.user_id = ?");
+// Old line: 
+// $stmt = $pdo->prepare("SELECT u.full_name, s.admission_number, s.class_id, s.class_role, s.parent_access_code, ...");
+
+// NEW CORRECT LINE (Matches your database screenshot):
+$stmt = $pdo->prepare("SELECT u.full_name, u.access_key AS parent_access_code, s.admission_number, s.class_id, s.class_role, c.class_name,
+                        (SELECT COUNT(*) FROM parent_student_link WHERE student_id = s.student_id) as is_linked 
+                        FROM users u 
+                        JOIN students s ON u.user_id = s.student_id 
+                        LEFT JOIN classes c ON s.class_id = c.class_id 
+                        WHERE u.user_id = ?");
 $stmt->execute([$student_id]);
 $me = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -62,6 +67,7 @@ $overall_avg = ($total_max > 0) ? round(($total_obtained / $total_max) * 100) : 
 // --- 4. SYSTEM LOGIC: FIND CLASS #1 (Top Performer) ---
 $top_student_id = null;
 $highest_avg = -1;
+$is_top_student = false; // Initialize to false
 
 if ($my_class_id) {
     // Get all students in my class
@@ -89,7 +95,10 @@ if ($my_class_id) {
         }
     }
 }
-$is_top_student = ($student_id == $top_student_id && $highest_avg > 0);
+// Only display if there's actually a highest average > 0
+if ($highest_avg > 0 && $student_id == $top_student_id) {
+    $is_top_student = true;
+}
 
 // --- 5. FETCH RECENT ANNOUNCEMENTS ---
 $msg_sql = "SELECT message, created_at FROM messages WHERE class_id = ? AND msg_type = 'system' ORDER BY created_at DESC LIMIT 3";

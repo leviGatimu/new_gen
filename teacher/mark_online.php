@@ -98,17 +98,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_grades'])) {
         $chk->execute([$current_student_id, $assessment_id]);
         $exists = $chk->fetch();
 
-        if ($exists) {
+       if ($exists) {
             // Update existing mark
             $sync_stmt = $pdo->prepare("UPDATE student_marks SET score = ? WHERE mark_id = ?");
             $sync_stmt->execute([$total_score, $exists['mark_id']]);
         } else {
-            // Insert new mark
-            $sync_stmt = $pdo->prepare("INSERT INTO student_marks (student_id, assessment_id, subject_id, score) VALUES (?, ?, ?, ?)");
+            // Insert new mark (FIXED: Removed subject_id)
+            $sync_stmt = $pdo->prepare("INSERT INTO student_marks (student_id, assessment_id, score) VALUES (?, ?, ?)");
             $sync_stmt->execute([
                 $current_student_id, 
                 $assessment_id, 
-                $exam['subject_id'], 
                 $total_score
             ]);
         }

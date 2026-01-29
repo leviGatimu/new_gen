@@ -1,7 +1,12 @@
 <?php
+// accountant/dashboard.php
 session_start();
 require '../config/db.php';
 
+// Security Check
+if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'accountant') {
+    header("Location: ../index.php"); exit;
+}
 
 // --- FINANCIAL CALCULATIONS ---
 // 1. Total Fees Collected
@@ -15,102 +20,224 @@ $total_expense = $expense_stmt->fetchColumn() ?: 0;
 // 3. Current Balance
 $balance = $total_income - $total_expense;
 
-// 4. Recent Transactions (Merged View)
-$recent_fees = $pdo->query("SELECT 'Income' as type, amount, payment_date as date, term as description FROM fee_payments ORDER BY payment_date DESC LIMIT 3")->fetchAll();
-$recent_exps = $pdo->query("SELECT 'Expense' as type, amount, expense_date as date, category as description FROM expenses ORDER BY expense_date DESC LIMIT 3")->fetchAll();
+// 4. Recent Transactions
+$recent_fees = $pdo->query("SELECT fp.*, u.full_name FROM fee_payments fp JOIN users u ON fp.student_id = u.user_id ORDER BY fp.payment_date DESC LIMIT 5")->fetchAll();
+$recent_exps = $pdo->query("SELECT * FROM expenses ORDER BY expense_date DESC LIMIT 5")->fetchAll();
 ?>
 
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <meta charset="UTF-8">
     <title>Finance Dashboard | NGA</title>
     <link rel="stylesheet" href="../assets/css/style.css">
     <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
+    
     <style>
-        :root { --green: #00ab55; --red: #ff4d4f; --blue: #2d99ff; --dark: #212b36; --light: #f4f6f8; }
-        body { background: var(--light); font-family: 'Public Sans', sans-serif; margin: 0; }
+        /* === THEME VARIABLES === */
+        :root { 
+            --primary: #FF6600; --primary-hover: #e65c00; 
+            --dark: #212b36; --light-bg: #f4f6f8; --white: #ffffff; --border: #dfe3e8; 
+            --green: #00ab55; --red: #ff4d4f; --blue: #2d99ff;
+            --nav-height: 75px;
+        }
         
-        .top-nav { background: white; height: 70px; display: flex; align-items: center; justify-content: space-between; padding: 0 40px; border-bottom: 1px solid #dfe3e8; }
-        .nav-brand { font-weight: 800; font-size: 1.2rem; display: flex; align-items: center; gap: 10px; color: var(--dark); text-decoration: none; }
-        .btn-logout { color: var(--red); text-decoration: none; font-weight: 700; border: 1px solid var(--red); padding: 8px 15px; border-radius: 6px; }
+        html, body { background-color: var(--light-bg); margin: 0; padding: 0; font-family: 'Public Sans', sans-serif; overflow-y: auto; }
 
-        .container { max-width: 1200px; margin: 40px auto; padding: 0 20px; }
-        
+        /* === TOP NAVIGATION BAR (Unified Theme) === */
+        .top-navbar {
+            position: fixed; top: 0; left: 0; width: 100%; height: var(--nav-height);
+            background: var(--white); z-index: 1000;
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 0 40px; box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            border-bottom: 1px solid var(--border); box-sizing: border-box;
+        }
+
+        .nav-brand { display: flex; align-items: center; gap: 15px; text-decoration: none; }
+        .logo-box { width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; }
+        .logo-box img { width: 80%; height: 80%; object-fit: contain; }
+        .nav-brand-text { font-size: 1.25rem; font-weight: 800; color: var(--dark); letter-spacing: -0.5px; }
+
+        .nav-menu { display: flex; gap: 10px; align-items: center; }
+        .nav-item {
+            text-decoration: none; color: #637381; font-weight: 600; font-size: 0.95rem;
+            padding: 10px 15px; border-radius: 8px; transition: 0.2s;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .nav-item:hover { color: var(--primary); background: rgba(255, 102, 0, 0.05); }
+        .nav-item.active { background: var(--primary); color: white; }
+
+        .btn-logout {
+            text-decoration: none; color: var(--red); font-weight: 700; font-size: 0.85rem;
+            padding: 8px 16px; border: 1.5px solid var(--red); border-radius: 8px; transition: 0.2s;
+        }
+        .btn-logout:hover { background: var(--red); color: white; }
+
+        /* === MAIN CONTENT === */
+        .main-content {
+            margin-top: var(--nav-height); padding: 40px 5%;
+            max-width: 1400px; margin-left: auto; margin-right: auto;
+        }
+
+        /* WELCOME BANNER */
+        .welcome-banner {
+            background: var(--white); padding: 30px; border-radius: 16px; margin-bottom: 35px;
+            border: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+            background: linear-gradient(120deg, #fff 0%, #fffbf7 100%);
+        }
+
+        /* STATS GRID */
         .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 25px; margin-bottom: 40px; }
-        .stat-card { background: white; padding: 25px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); text-align: center; border-bottom: 4px solid transparent; }
+        .stat-card {
+            background: var(--white); padding: 25px; border-radius: 16px;
+            border: 1px solid var(--border); box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+            position: relative; transition: 0.3s;
+        }
+        .stat-card:hover { transform: translateY(-3px); box-shadow: 0 10px 20px rgba(0,0,0,0.05); }
         
-        .stat-income { border-color: var(--green); }
-        .stat-expense { border-color: var(--red); }
-        .stat-balance { border-color: var(--blue); }
+        .stat-icon-bg {
+            position: absolute; right: 20px; top: 20px; width: 50px; height: 50px;
+            border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            font-size: 1.5rem; opacity: 0.2;
+        }
+        .stat-label { font-size: 0.85rem; color: #637381; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+        .stat-number { font-size: 2rem; font-weight: 800; color: var(--dark); margin: 10px 0; }
+        .stat-trend { font-size: 0.85rem; font-weight: 600; }
 
-        .stat-val { font-size: 2rem; font-weight: 800; margin: 10px 0; color: var(--dark); }
-        .stat-label { color: #637381; font-weight: 700; text-transform: uppercase; font-size: 0.85rem; }
+        /* SPLIT LAYOUT */
+        .dashboard-split { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+        .card { background: white; border-radius: 16px; border: 1px solid var(--border); padding: 25px; box-shadow: 0 4px 12px rgba(0,0,0,0.02); }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #f4f6f8; padding-bottom: 15px; }
+        .card-title { margin: 0; font-size: 1.1rem; color: var(--dark); font-weight: 700; }
+        
+        .list-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #f4f6f8; }
+        .list-item:last-child { border-bottom: none; }
+        .list-info h4 { margin: 0 0 5px; font-size: 0.95rem; color: var(--dark); }
+        .list-info span { font-size: 0.8rem; color: #637381; }
+        .money-badge { font-weight: 700; font-family: monospace; font-size: 0.95rem; }
 
-        .action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 25px; }
-        .panel { background: white; padding: 25px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
-        .panel h3 { margin-top: 0; color: var(--dark); border-bottom: 1px solid #f0f0f0; padding-bottom: 15px; }
-
-        .btn-big { display: block; width: 100%; padding: 15px; background: var(--dark); color: white; text-align: center; border-radius: 10px; text-decoration: none; font-weight: 700; margin-bottom: 10px; transition: 0.2s; }
-        .btn-big:hover { opacity: 0.9; transform: translateY(-2px); }
-        .btn-green { background: var(--green); }
-        .btn-red { background: var(--red); }
+        /* COLORS */
+        .text-green { color: var(--green); }
+        .bg-green-light { background: #e9fcd4; color: var(--green); }
+        .text-red { color: var(--red); }
+        .bg-red-light { background: #ffe7d9; color: var(--red); }
+        .text-blue { color: var(--blue); }
+        .bg-blue-light { background: #d0f2ff; color: var(--blue); }
     </style>
 </head>
 <body>
 
-<nav class="top-nav">
-    <a href="#" class="nav-brand"><i class='bx bxs-wallet'></i> NGA Finance</a>
-    <a href="../logout.php" class="btn-logout">Logout</a>
+<nav class="top-navbar">
+    <a href="dashboard.php" class="nav-brand">
+        <div class="logo-box">
+            <img src="../assets/images/logo.png" alt="NGA">
+        </div>
+        <span class="nav-brand-text">NGA Finance</span>
+    </a>
+
+    <div class="nav-menu">
+        <a href="dashboard.php" class="nav-item active">
+            <i class='bx bxs-dashboard'></i> <span>Dashboard</span>
+        </a>
+        <a href="fees.php" class="nav-item">
+            <i class='bx bx-money'></i> <span>Fees</span>
+        </a>
+        <a href="expenses.php" class="nav-item">
+            <i class='bx bx-cart'></i> <span>Expenses</span>
+        </a>
+        <a href="report.php" class="nav-item">
+            <i class='bx bx-cart'></i> <span>Report</span>
+        </a>
+    </div>
+
+    <div class="nav-user">
+        <a href="../logout.php" class="btn-logout">Logout</a>
+    </div>
 </nav>
 
-<div class="container">
-    <h1 style="margin-bottom:30px;">Financial Overview</h1>
+<div class="main-content">
+    
+    <div class="welcome-banner">
+        <div>
+            <h2 style="margin:0; font-size:1.8rem; color:var(--dark);">Financial Overview</h2>
+            <p style="color: #637381; margin: 8px 0 0; font-size: 0.95rem;">
+                Tracking income, expenses, and school liquidity.
+            </p>
+        </div>
+        <div style="text-align: right;">
+            <div style="font-weight: 800; color: var(--dark); font-size: 1rem;"><?php echo date("l, d M Y"); ?></div>
+            <div style="color: var(--primary); font-weight: 700; font-size: 0.9rem;">Logged in as Accountant</div>
+        </div>
+    </div>
 
     <div class="stats-grid">
-        <div class="stat-card stat-income">
+        <div class="stat-card">
+            <div class="stat-icon-bg bg-green-light"><i class='bx bx-trending-up'></i></div>
             <div class="stat-label">Total Fees Collected</div>
-            <div class="stat-val" style="color:var(--green);">$<?php echo number_format($total_income, 2); ?></div>
+            <div class="stat-number text-green">$<?php echo number_format($total_income, 2); ?></div>
+            <div class="stat-trend">Student Payments</div>
         </div>
-        <div class="stat-card stat-expense">
+
+        <div class="stat-card">
+            <div class="stat-icon-bg bg-red-light"><i class='bx bx-trending-down'></i></div>
             <div class="stat-label">Total Expenses</div>
-            <div class="stat-val" style="color:var(--red);">$<?php echo number_format($total_expense, 2); ?></div>
+            <div class="stat-number text-red">$<?php echo number_format($total_expense, 2); ?></div>
+            <div class="stat-trend">Operational Costs</div>
         </div>
-        <div class="stat-card stat-balance">
-            <div class="stat-label">Net School Balance</div>
-            <div class="stat-val" style="color:var(--blue);">$<?php echo number_format($balance, 2); ?></div>
+
+        <div class="stat-card">
+            <div class="stat-icon-bg bg-blue-light"><i class='bx bxs-wallet'></i></div>
+            <div class="stat-label">Net Balance</div>
+            <div class="stat-number text-blue">$<?php echo number_format($balance, 2); ?></div>
+            <div class="stat-trend">Available Liquidity</div>
         </div>
     </div>
 
-    <div class="action-grid">
-        <div class="panel">
-            <h3>Quick Actions</h3>
-            <a href="fees.php" class="btn-big btn-green"><i class='bx bx-money'></i> Record Student Fee Payment</a>
-            <a href="expenses.php" class="btn-big btn-red"><i class='bx bx-cart'></i> Record New Expense</a>
+    <div class="dashboard-split">
+        
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">Recent Fee Payments</h3>
+                <a href="fees.php" style="color:var(--primary); text-decoration:none; font-weight:700; font-size:0.85rem;">View All &rarr;</a>
+            </div>
+            <?php if(empty($recent_fees)): ?>
+                <p style="color:#999; text-align:center;">No payments recorded yet.</p>
+            <?php else: ?>
+                <?php foreach($recent_fees as $f): ?>
+                <div class="list-item">
+                    <div class="list-info">
+                        <h4><?php echo htmlspecialchars($f['full_name']); ?></h4>
+                        <span><?php echo htmlspecialchars($f['term']); ?> &bull; <?php echo date("M d", strtotime($f['payment_date'])); ?></span>
+                    </div>
+                    <div class="money-badge text-green">+<?php echo number_format($f['amount']); ?></div>
+                </div>
+                <?php endforeach; ?>
+            <?php endif; ?>
         </div>
 
-        <div class="panel">
-            <h3>Recent Activity</h3>
-            <?php foreach($recent_fees as $f): ?>
-                <div style="display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid #f9fafb;">
-                    <div>
-                        <span style="font-weight:700; color:var(--green);">+ Income</span>
-                        <div style="font-size:0.85rem; color:#666;">Fees: <?php echo $f['description']; ?></div>
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">Recent Expenses</h3>
+                <a href="expenses.php" style="color:var(--red); text-decoration:none; font-weight:700; font-size:0.85rem;">View All &rarr;</a>
+            </div>
+            <?php if(empty($recent_exps)): ?>
+                <p style="color:#999; text-align:center;">No expenses recorded yet.</p>
+            <?php else: ?>
+                <?php foreach($recent_exps as $e): ?>
+                <div class="list-item">
+                    <div class="list-info">
+                        <h4><?php echo htmlspecialchars($e['category']); ?></h4>
+                        <span><?php echo htmlspecialchars($e['description']); ?> &bull; <?php echo date("M d", strtotime($e['expense_date'])); ?></span>
                     </div>
-                    <div style="font-weight:700;">$<?php echo number_format($f['amount']); ?></div>
+                    <div class="money-badge text-red">-<?php echo number_format($e['amount']); ?></div>
                 </div>
-            <?php endforeach; ?>
-            
-            <?php foreach($recent_exps as $e): ?>
-                <div style="display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid #f9fafb;">
-                    <div>
-                        <span style="font-weight:700; color:var(--red);">- Expense</span>
-                        <div style="font-size:0.85rem; color:#666;"><?php echo $e['description']; ?></div>
-                    </div>
-                    <div style="font-weight:700;">$<?php echo number_format($e['amount']); ?></div>
-                </div>
-            <?php endforeach; ?>
+                <?php endforeach; ?>
+            <?php endif; ?>
         </div>
+
     </div>
+
 </div>
 
 </body>
