@@ -125,6 +125,7 @@ try {
         <a href="dashboard.php" class="nav-link active"><i class='bx bxs-dashboard'></i> Dashboard</a>
         <a href="messages.php" class="nav-link"><i class='bx bxs-chat'></i> Messages</a>
         <a href="report_card.php" class="nav-link"><i class='bx bxs-file-pdf'></i> Report Cards</a>
+       
         <a href="homework.php" class="nav-link"><i class='bx bxs-book-content'></i> Homework</a>
          <a href="notifications.php" class="notif-box" title="Notifications">
             <i class='bx bxs-bell' style="font-size: 1.5rem; color: #637381;"></i>
@@ -247,6 +248,14 @@ try {
                         <span class="fee-label">Current Term</span>
                         <span class="fee-amount" style="font-size:1rem;"><?php echo htmlspecialchars($term_name); ?></span>
                         <small style="color:#666;">Due: <?php echo $due_date_display; ?></small>
+                        <?php if($balance > 0): ?>
+    <div style="margin-bottom: 20px;">
+        <a href="pay.php?student_id=<?php echo $child['student_id']; ?>" 
+           style="display:block; background:#212b36; color:white; text-align:center; padding:12px; border-radius:8px; text-decoration:none; font-weight:bold; transition:0.2s;">
+            <i class='bx bx-credit-card'></i> Pay Now (Mobile Money)
+        </a>
+    </div>
+<?php endif; ?>
                     </div>
                     
                     <div class="fee-item" style="background:<?php echo $balance > 0 ? '#fff1f0' : '#e9fcd4'; ?>; border-color:<?php echo $balance > 0 ? '#ffa39e' : '#b7eb8f'; ?>;">

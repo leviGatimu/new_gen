@@ -18,12 +18,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['broadcast_msg'])) {
     
     if (!empty($txt)) {
         try {
+            // Start Transaction to ensure all or nothing
+            $pdo->beginTransaction();
+
             // 1. Get ALL Class IDs
             $classes = $pdo->query("SELECT class_id FROM classes")->fetchAll(PDO::FETCH_COLUMN);
             
             // 2. Prepare Message Insert
             // We insert the message for EVERY class so all students/teachers see it in their group context
-            $stmt = $pdo->prepare("INSERT INTO messages (sender_id, class_id, message, msg_type) VALUES (?, ?, ?, 'system')");
+            $stmt = $pdo->prepare("INSERT INTO messages (sender_id, class_id, message, msg_type, created_at) VALUES (?, ?, ?, 'system', NOW())");
             
             $count = 0;
             foreach ($classes as $class_id) {
@@ -32,9 +35,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['broadcast_msg'])) {
                 $count++;
             }
             
-            $message = "Broadcast sent successfully to $count classes.";
+            $pdo->commit();
+            $message = "Broadcast successfully sent to $count active classes.";
             $msg_type = "success";
+
         } catch (PDOException $e) {
+            $pdo->rollBack();
             $message = "Error sending broadcast: " . $e->getMessage();
             $msg_type = "error";
         }
@@ -46,13 +52,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['broadcast_msg'])) {
 $student_count = $pdo->query("SELECT COUNT(*) FROM users WHERE role = 'student'")->fetchColumn();
 $teacher_count = $pdo->query("SELECT COUNT(*) FROM users WHERE role = 'teacher'")->fetchColumn();
 $parent_count  = $pdo->query("SELECT COUNT(*) FROM users WHERE role = 'parent'")->fetchColumn();
+$acct_count    = $pdo->query("SELECT COUNT(*) FROM users WHERE role = 'accountant'")->fetchColumn(); // ADDED
 $class_count   = $pdo->query("SELECT COUNT(*) FROM classes")->fetchColumn();
+
+// Financial Snapshot (For Admin View)
+$income_stmt = $pdo->query("SELECT SUM(amount) FROM fee_payments");
+$total_revenue = $income_stmt->fetchColumn() ?: 0;
 
 // Newest Users (Last 5)
 $new_users = $pdo->query("SELECT full_name, role, created_at FROM users ORDER BY created_at DESC LIMIT 5")->fetchAll();
 
 // Recent System Broadcasts (Last 3 unique messages sent by admin)
-$recent_broadcasts = $pdo->prepare("SELECT DISTINCT message, created_at FROM messages WHERE sender_id = ? AND msg_type = 'system' ORDER BY created_at DESC LIMIT 3");
+// We group by message content to avoid showing the same broadcast 10 times (once per class)
+$recent_broadcasts = $pdo->prepare("SELECT message, MAX(created_at) as created_at FROM messages WHERE sender_id = ? AND msg_type = 'system' GROUP BY message ORDER BY created_at DESC LIMIT 3");
 $recent_broadcasts->execute([$admin_id]);
 $broadcasts = $recent_broadcasts->fetchAll();
 ?>
@@ -76,6 +88,8 @@ $broadcasts = $recent_broadcasts->fetchAll();
         .logo-box { width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; }
         .logo-box img { width: 80%; height: 80%; object-fit: contain; }
         .nav-brand-text { font-size: 1.25rem; font-weight: 800; color: var(--dark); letter-spacing: -0.5px; }
+        
+        /* SIDEBAR / MENU (Integrated into Top for cleaner Admin view) */
         .nav-menu { display: flex; gap: 5px; align-items: center; }
         .nav-item { text-decoration: none; color: #637381; font-weight: 600; font-size: 0.95rem; padding: 10px 15px; border-radius: 8px; transition: 0.2s; display: flex; align-items: center; gap: 6px; }
         .nav-item:hover { color: var(--primary); background: rgba(255, 102, 0, 0.05); }
@@ -89,8 +103,18 @@ $broadcasts = $recent_broadcasts->fetchAll();
         /* Welcome Banner */
         .welcome-banner { background: var(--white); padding: 30px; border-radius: 16px; margin-bottom: 35px; border: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 12px rgba(0,0,0,0.03); background: linear-gradient(120deg, #fff 0%, #fffbf7 100%); }
 
+        /* FINANCE BANNER (New) */
+        .finance-banner {
+            background: linear-gradient(135deg, #212b36 0%, #161c24 100%);
+            color: white; padding: 25px 30px; border-radius: 16px; 
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        .btn-report { background: var(--primary); color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 0.9rem; transition:0.2s; }
+        .btn-report:hover { background: var(--primary-hover); transform: translateY(-2px); }
+
         /* Stats Grid */
-        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 25px; margin-bottom: 40px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 25px; margin-bottom: 40px; }
         .stat-card { background: var(--white); padding: 25px; border-radius: 16px; border: 1px solid var(--border); box-shadow: 0 2px 4px rgba(0,0,0,0.02); transition: 0.3s; position: relative; }
         .stat-card:hover { transform: translateY(-3px); box-shadow: 0 10px 20px rgba(0,0,0,0.05); border-color: var(--primary); }
         .stat-label { font-size: 0.85rem; color: #637381; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
@@ -119,6 +143,7 @@ $broadcasts = $recent_broadcasts->fetchAll();
         .bg-student { background: #e3f2fd; color: #007bff; }
         .bg-teacher { background: #fff7e6; color: #b78103; }
         .bg-parent { background: #e6fffa; color: #008080; }
+        .bg-accountant { background: #ffe7d9; color: #b72136; }
 
         .log-item { background: #f9fafb; padding: 12px; border-radius: 8px; margin-bottom: 10px; border-left: 3px solid var(--primary); }
         .log-date { font-size: 0.75rem; color: #919eab; margin-top: 5px; display: block; }
@@ -140,7 +165,7 @@ $broadcasts = $recent_broadcasts->fetchAll();
         <a href="dashboard.php" class="nav-item active"><i class='bx bxs-dashboard'></i> <span>Dashboard</span></a>
         <a href="students.php" class="nav-item"><i class='bx bxs-user-detail'></i> <span>Students</span></a>
         <a href="teachers.php" class="nav-item"><i class='bx bxs-id-card'></i> <span>Teachers</span></a>
-        <a href="classes.php" class="nav-item"><i class='bx bxs-school'></i> <span>Classes</span></a>
+        <a href="finance_report.php" class="nav-item"><i class='bx bxs-bar-chart-alt-2'></i> <span>Finance</span></a>
         <a href="settings.php" class="nav-item"><i class='bx bxs-cog'></i> <span>Settings</span></a>
     </div>
     <div class="nav-user"><a href="../logout.php" class="btn-logout">Logout</a></div>
@@ -155,8 +180,21 @@ $broadcasts = $recent_broadcasts->fetchAll();
         </div>
         <div style="text-align: right;">
             <div style="font-weight: 800; color: var(--dark); font-size: 1rem;"><?php echo date("l, d M Y"); ?></div>
-            <a href="settings.php" style="color: var(--primary); font-weight: 700; font-size: 0.9rem; text-decoration:none;">System Settings &rarr;</a>
+            <a href="finance_report.php" style="color: var(--primary); font-weight: 700; font-size: 0.9rem; text-decoration:none;">View Financials &rarr;</a>
         </div>
+    </div>
+
+    <div class="finance-banner">
+        <div>
+            <h2 style="margin:0;">Total School Revenue</h2>
+            <div style="font-size:2rem; font-weight:800; color:#4caf50; margin:5px 0;">
+                RWF <?php echo number_format($total_revenue); ?>
+            </div>
+            <span style="opacity:0.7; font-size:0.85rem;">System generated from all collected fees.</span>
+        </div>
+        <a href="finance_report.php" class="btn-report">
+            <i class='bx bxs-pie-chart-alt-2'></i> Termly Reports
+        </a>
     </div>
 
     <div class="stats-grid">
@@ -173,16 +211,16 @@ $broadcasts = $recent_broadcasts->fetchAll();
             <div style="color: #637381; font-size: 0.85rem;">Faculty</div>
         </div>
         <div class="stat-card">
+            <i class='bx bxs-calculator stat-icon'></i>
+            <div class="stat-label">Accountants</div>
+            <div class="stat-number"><?php echo $acct_count; ?></div>
+            <div style="color: #637381; font-size: 0.85rem;">Finance Team</div>
+        </div>
+        <div class="stat-card">
             <i class='bx bxs-face stat-icon'></i>
             <div class="stat-label">Parents</div>
             <div class="stat-number"><?php echo $parent_count; ?></div>
             <div style="color: #637381; font-size: 0.85rem;">Linked</div>
-        </div>
-        <div class="stat-card">
-            <i class='bx bxs-school stat-icon'></i>
-            <div class="stat-label">Classes</div>
-            <div class="stat-number"><?php echo $class_count; ?></div>
-            <div style="color: var(--primary); font-size: 0.85rem; font-weight: 700;">Active</div>
         </div>
     </div>
 
