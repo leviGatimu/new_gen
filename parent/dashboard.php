@@ -1,4 +1,3 @@
-
 <?php
 // parent/dashboard.php
 session_start();
@@ -12,14 +11,14 @@ $parent_id = $_SESSION['user_id'];
 $parent_name = $_SESSION['name'];
 
 try {
-    // 1. Get Unread Notifications Count (For the Bell)
+    // 1. Get Unread Notifications Count
     $notif_stmt = $pdo->prepare("SELECT COUNT(*) FROM messages WHERE receiver_id = ? AND is_read = 0");
     $notif_stmt->execute([$parent_id]);
     $unread_count = $notif_stmt->fetchColumn();
 
     // 2. Fetch ALL Linked Children
-    // MODIFIED: Also fetch expected_fees to calculate balance immediately
-    $stmt = $pdo->prepare("SELECT s.student_id, u.full_name, c.class_name, s.admission_number, s.expected_fees 
+    // ADDED: s.class_id (We need this to find the fee structure for their grade)
+    $stmt = $pdo->prepare("SELECT s.student_id, s.class_id, u.full_name, c.class_name, s.admission_number 
                            FROM parent_student_link psl
                            JOIN students s ON psl.student_id = s.student_id
                            JOIN users u ON s.student_id = u.user_id
@@ -44,160 +43,72 @@ try {
    <style>
     /* === 1. VARIABLES & THEME CONFIGURATION === */
     :root { 
-        /* Colors for Light Mode (Default) */
         --primary: #FF6600; 
         --primary-hover: #e65c00; 
-        
         --bg-body: #f4f6f8; 
         --bg-card: #ffffff; 
         --bg-nav: rgba(255, 255, 255, 0.95);
-        --bg-item: #f9fafb; /* For fee boxes */
-        
+        --bg-item: #f9fafb;
         --text-main: #212b36; 
         --text-muted: #637381; 
-        
         --border: #dfe3e8; 
         --shadow: 0 4px 12px rgba(0,0,0,0.03);
-        
         --nav-height: 80px; 
     }
 
-    /* Colors for Dark Mode */
     [data-theme="dark"] {
-        --bg-body: #161c24; /* Deep dark background */
-        --bg-card: #212b36; /* Dark grey cards */
-        --bg-nav: rgba(33, 43, 54, 0.95); /* Dark glass header */
+        --bg-body: #161c24; 
+        --bg-card: #212b36; 
+        --bg-nav: rgba(33, 43, 54, 0.95); 
         --bg-item: #28313c;
-        
-        --text-main: #ffffff; /* White text */
-        --text-muted: #919eab; /* Light grey text */
-        
-        --border: #353f49; /* Dark borders */
-        --shadow: 0 4px 12px rgba(0,0,0,0.5); /* Stronger shadow */
+        --text-main: #ffffff; 
+        --text-muted: #919eab; 
+        --border: #353f49; 
+        --shadow: 0 4px 12px rgba(0,0,0,0.5); 
     }
 
-    /* === 2. GENERAL STYLES === */
-    body { 
-        background-color: var(--bg-body); 
-        color: var(--text-main);
-        margin: 0; 
-        font-family: 'Public Sans', sans-serif; 
-        transition: background-color 0.3s ease, color 0.3s ease;
-    }
+    body { background-color: var(--bg-body); color: var(--text-main); margin: 0; font-family: 'Public Sans', sans-serif; transition: background-color 0.3s ease, color 0.3s ease; }
     
-    /* === 3. HEADER STYLES === */
-    .top-navbar {
-        position: fixed; top: 0; left: 0; width: 100%; height: var(--nav-height);
-        background: var(--bg-nav); /* Uses variable */
-        backdrop-filter: blur(12px);
-        z-index: 1000; 
-        display: flex; justify-content: space-between; align-items: center; 
-        padding: 0 40px; 
-        border-bottom: 1px solid var(--border);
-        box-shadow: var(--shadow);
-        box-sizing: border-box;
-        transition: background 0.3s ease;
-    }
-
+    .top-navbar { position: fixed; top: 0; left: 0; width: 100%; height: var(--nav-height); background: var(--bg-nav); backdrop-filter: blur(12px); z-index: 1000; display: flex; justify-content: space-between; align-items: center; padding: 0 40px; border-bottom: 1px solid var(--border); box-shadow: var(--shadow); box-sizing: border-box; transition: background 0.3s ease; }
     .nav-brand { display: flex; align-items: center; gap: 12px; text-decoration: none; }
     .logo-box { width: 40px; display: flex; align-items: center; }
     .logo-box img { width: 100%; height: auto; }
     .nav-brand-text { font-size: 1.2rem; font-weight: 800; color: var(--text-main); letter-spacing: -0.5px; }
 
-    /* Menu Items */
     .nav-menu { display: flex; gap: 15px; align-items: center; }
-
-    .nav-link, .notif-box { 
-        text-decoration: none; 
-        color: var(--text-muted); /* Variable */
-        font-weight: 700; 
-        font-size: 0.95rem; 
-        padding: 10px 20px; 
-        border-radius: 50px; 
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        display: flex; align-items: center; gap: 8px;
-        border: 1px solid transparent;
-    }
-
-    .nav-link:hover, .notif-box:hover {
-        background-color: rgba(255, 102, 0, 0.1); /* Transparent Orange */
-        color: var(--primary); 
-        transform: translateY(-2px);
-    }
-
-    .nav-link.active {
-        background: linear-gradient(135deg, #FF6600 0%, #ff8533 100%);
-        color: white !important;
-        box-shadow: 0 6px 15px rgba(255, 102, 0, 0.3);
-        transform: translateY(0);
-    }
-    
-    /* Icons */
+    .nav-link, .notif-box { text-decoration: none; color: var(--text-muted); font-weight: 700; font-size: 0.95rem; padding: 10px 20px; border-radius: 50px; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); display: flex; align-items: center; gap: 8px; border: 1px solid transparent; }
+    .nav-link:hover, .notif-box:hover { background-color: rgba(255, 102, 0, 0.1); color: var(--primary); transform: translateY(-2px); }
+    .nav-link.active { background: linear-gradient(135deg, #FF6600 0%, #ff8533 100%); color: white !important; box-shadow: 0 6px 15px rgba(255, 102, 0, 0.3); transform: translateY(0); }
     .nav-link i { transition: transform 0.3s ease; }
     .nav-link:hover i { transform: rotate(-10deg) scale(1.1); }
 
-    /* Theme Toggle Button Style */
-    .theme-btn {
-        background: none; border: none; cursor: pointer;
-        font-size: 1.5rem; color: var(--text-muted);
-        display: flex; align-items: center; justify-content: center;
-        padding: 8px; border-radius: 50%; transition: 0.3s;
-    }
-    .theme-btn:hover { background: rgba(0,0,0,0.05); color: var(--primary); }
-
-    /* Logout */
-    .btn-logout {
-        text-decoration: none; color: #ff4d4f; font-weight: 700; font-size: 0.9rem;
-        padding: 10px 20px; border: 1.5px solid #ff4d4f; border-radius: 8px; transition: 0.2s;
-        display: flex; align-items: center; gap: 6px;
-    }
+    .btn-logout { text-decoration: none; color: #ff4d4f; font-weight: 700; font-size: 0.9rem; padding: 10px 20px; border: 1.5px solid #ff4d4f; border-radius: 8px; transition: 0.2s; display: flex; align-items: center; gap: 6px; }
     .btn-logout:hover { background: #ff4d4f; color: white; box-shadow: 0 4px 12px rgba(255, 77, 79, 0.2); }
 
-    /* === 4. DASHBOARD CONTENT STYLES === */
     .main-content { margin-top: var(--nav-height); padding: 40px 5%; }
-    
-    /* Cards */
-    .welcome-card, .white-card, .stat-card { 
-        background: var(--bg-card); /* Variable */
-        border-radius: 16px; 
-        border: 1px solid var(--border); 
-        padding: 25px; 
-        box-shadow: var(--shadow); 
-        margin-bottom: 30px; 
-        transition: background 0.3s ease;
-    }
-    
+    .welcome-card, .white-card, .stat-card { background: var(--bg-card); border-radius: 16px; border: 1px solid var(--border); padding: 25px; box-shadow: var(--shadow); margin-bottom: 30px; transition: background 0.3s ease; }
     .welcome-card { padding: 40px; display: flex; justify-content: space-between; align-items: center; border-radius: 20px; }
     
-    /* Text Colors inside cards */
     h1, h2, h3, h4 { color: var(--text-main); }
     p, span, small, td { color: var(--text-muted); }
     
-    /* Stats Grid */
     .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
     .stat-icon { width: 50px; height: 50px; border-radius: 12px; background: rgba(255, 102, 0, 0.1); color: var(--primary); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; }
     
-    /* Fee Grid */
     .fee-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 15px; margin-bottom: 20px; }
-    .fee-item { 
-        background: var(--bg-item); /* Variable */
-        padding: 15px; border-radius: 10px; border: 1px solid var(--border); text-align: center; 
-    }
+    .fee-item { background: var(--bg-item); padding: 15px; border-radius: 10px; border: 1px solid var(--border); text-align: center; }
     .fee-label { font-size: 0.75rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
     .fee-amount { font-size: 1.1rem; font-weight: 800; color: var(--text-main); margin-top: 5px; display: block; }
     
-    /* Tables */
     table { width: 100%; border-collapse: collapse; margin-top: 15px; }
     th { text-align: left; padding: 12px; border-bottom: 2px solid var(--border); color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; }
     td { padding: 12px; border-bottom: 1px solid var(--border); color: var(--text-main); font-size: 0.95rem; }
     .grade-badge { padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 0.85rem; }
 
-    /* Action Buttons */
     .btn-action { display: inline-flex; align-items: center; gap: 8px; padding: 10px 15px; border-radius: 8px; font-weight: 700; font-size: 0.9rem; text-decoration: none; transition: 0.2s; cursor: pointer; border: none; }
     .btn-chat { background: rgba(0, 123, 255, 0.1); color: #007bff; } .btn-chat:hover { background: #007bff; color: white; }
     .btn-view { background: rgba(255, 102, 0, 0.1); color: var(--primary); } .btn-view:hover { background: var(--primary); color: white; }
     
-    /* Notification Badge */
     .notif-box { position: relative; cursor: pointer; padding: 10px; }
     .notif-badge { position: absolute; top: 5px; right: 5px; background: #ff4d4f; color: white; font-size: 0.65rem; padding: 2px 5px; border-radius: 50%; font-weight: bold; border: 2px solid var(--bg-card); }
 </style>
@@ -211,18 +122,10 @@ try {
     </a>
     
     <div class="nav-menu">
-        <a href="dashboard.php" class="nav-link active">
-            <i class='bx bxs-dashboard'></i> Dashboard
-        </a>
-        <a href="messages.php" class="nav-link">
-            <i class='bx bxs-chat'></i> Messages
-        </a>
-        <a href="report_card.php" class="nav-link">
-            <i class='bx bxs-file-pdf'></i> Report Cards
-        </a>
-        <a href="homework.php" class="nav-link">
-            <i class='bx bxs-book-content'></i> Homework
-        </a>
+        <a href="dashboard.php" class="nav-link active"><i class='bx bxs-dashboard'></i> Dashboard</a>
+        <a href="messages.php" class="nav-link"><i class='bx bxs-chat'></i> Messages</a>
+        <a href="report_card.php" class="nav-link"><i class='bx bxs-file-pdf'></i> Report Cards</a>
+        <a href="homework.php" class="nav-link"><i class='bx bxs-book-content'></i> Homework</a>
          <a href="notifications.php" class="notif-box" title="Notifications">
             <i class='bx bxs-bell' style="font-size: 1.5rem; color: #637381;"></i>
             <?php if($unread_count > 0): ?>
@@ -230,10 +133,8 @@ try {
             <?php endif; ?>
         </a>
         <button onclick="toggleTheme()" style="background:none; border:none; cursor:pointer; font-size:1.4rem; color:var(--text-sec); display:flex; align-items:center;">
-    <i class='bx bxs-moon' id="themeIcon"></i>
-</button>
-        
-    
+            <i class='bx bxs-moon' id="themeIcon"></i>
+        </button>
     </div>
 
     <a href="../logout.php" class="btn-logout" style="margin-left: 20px;">
@@ -282,7 +183,7 @@ try {
         <?php foreach ($children as $child): ?>
             
             <?php
-            // Fetch Marks
+            // 1. Fetch Marks
             $m_stmt = $pdo->prepare("SELECT sub.subject_name, mk.score, ca.max_score, 
                                      (mk.score/ca.max_score)*100 as percentage 
                                      FROM student_marks mk
@@ -292,21 +193,31 @@ try {
             $m_stmt->execute([$child['student_id']]);
             $marks = $m_stmt->fetchAll();
 
-            // Calculate Avg
             $total_score = 0; $count = 0;
             foreach($marks as $m) { $total_score += $m['percentage']; $count++; }
             $avg = $count > 0 ? round($total_score / $count, 1) : 0;
 
-            // Fetch Fees
-            $f_stmt = $pdo->prepare("SELECT * FROM student_fees WHERE student_id = ?");
-            $f_stmt->execute([$child['student_id']]);
-            $fee = $f_stmt->fetch();
+            // 2. FETCH FEE STRUCTURE (THE FIX)
+            // We fetch the fee rules associated with this child's CLASS
+            $fs_stmt = $pdo->prepare("SELECT * FROM fee_structure WHERE class_id = ? ORDER BY due_date DESC LIMIT 1");
+            $fs_stmt->execute([$child['class_id']]);
+            $structure = $fs_stmt->fetch();
+
+            // Set variables based on structure or defaults
+            $term_name = $structure['term_name'] ?? 'Not Set';
+            $total_fee = $structure['amount'] ?? 0;
+            $due_date_raw = $structure['due_date'] ?? null;
+            $due_date_display = $due_date_raw ? date("M d, Y", strtotime($due_date_raw)) : 'TBA';
+
+            // Calculate Payment
+            $p_stmt = $pdo->prepare("SELECT SUM(amount) FROM fee_payments WHERE student_id = ?");
+            $p_stmt->execute([$child['student_id']]);
+            $paid_fee = $p_stmt->fetchColumn() ?: 0;
+
+            $balance = $total_fee - $paid_fee;
             
-            $total_fee = $fee['total_amount'] ?? 0;
-            $paid_fee  = $fee['paid_amount'] ?? 0;
-            $balance   = $total_fee - $paid_fee;
-            $due_date  = $fee['next_due_date'] ?? 'N/A';
-            $has_loan  = ($fee['loan_amount'] ?? 0) > 0;
+            // Check Overdue
+            $is_overdue = ($balance > 0 && $due_date_raw && strtotime($due_date_raw) < time());
             ?>
 
             <div class="white-card">
@@ -333,25 +244,26 @@ try {
                 <h4 style="margin:0 0 10px 0; color:#212b36;"><i class='bx bxs-wallet' style="color:#28a745;"></i> School Fees</h4>
                 <div class="fee-grid">
                     <div class="fee-item">
-                        <span class="fee-label">Total Fee</span>
-                        <span class="fee-amount">RWF <?php echo number_format($total_fee); ?></span>
+                        <span class="fee-label">Current Term</span>
+                        <span class="fee-amount" style="font-size:1rem;"><?php echo htmlspecialchars($term_name); ?></span>
+                        <small style="color:#666;">Due: <?php echo $due_date_display; ?></small>
                     </div>
-                    <div class="fee-item" style="background:#fff1f0; border-color:#ffa39e;">
-                        <span class="fee-label" style="color:#cf1322;">What You Owe</span>
-                        <span class="fee-amount" style="color:#cf1322;">RWF <?php echo number_format($balance); ?></span>
-                    </div>
-                    <div class="fee-item">
-                        <span class="fee-label">Next Due Date</span>
-                        <span class="fee-amount" style="font-size:1rem; margin-top:8px;">
-                            <?php echo $due_date; ?>
+                    
+                    <div class="fee-item" style="background:<?php echo $balance > 0 ? '#fff1f0' : '#e9fcd4'; ?>; border-color:<?php echo $balance > 0 ? '#ffa39e' : '#b7eb8f'; ?>;">
+                        <span class="fee-label" style="color:<?php echo $balance > 0 ? '#cf1322' : '#229a16'; ?>;">
+                            <?php echo $balance > 0 ? 'Balance Due' : 'Status'; ?>
+                        </span>
+                        <span class="fee-amount" style="color:<?php echo $balance > 0 ? '#cf1322' : '#229a16'; ?>;">
+                            <?php echo $balance > 0 ? 'RWF ' . number_format($balance) : 'CLEARED'; ?>
                         </span>
                     </div>
-                    <?php if($has_loan): ?>
-                    <div class="fee-item" style="background:#fffbe6; border-color:#ffe58f;">
-                        <span class="fee-label" style="color:#d48806;">Equipment Loan</span>
-                        <span class="fee-amount" style="color:#d48806;">RWF <?php echo number_format($fee['loan_amount']); ?></span>
+
+                    <div class="fee-item">
+                        <span class="fee-label">Amount Paid</span>
+                        <span class="fee-amount" style="color:#00ab55;">
+                             RWF <?php echo number_format($paid_fee); ?>
+                        </span>
                     </div>
-                    <?php endif; ?>
                 </div>
 
                 <div style="display:flex; gap:10px; margin-bottom:20px; border-bottom:1px solid #eee; padding-bottom:20px;">

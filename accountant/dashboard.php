@@ -58,6 +58,7 @@ $recent_exps = $pdo->query("SELECT * FROM expenses ORDER BY expense_date DESC LI
         .logo-box img { width: 80%; height: 80%; object-fit: contain; }
         .nav-brand-text { font-size: 1.25rem; font-weight: 800; color: var(--dark); letter-spacing: -0.5px; }
 
+        /* NAV MENU - UPDATED TO INCLUDE ALL LINKS */
         .nav-menu { display: flex; gap: 10px; align-items: center; }
         .nav-item {
             text-decoration: none; color: #637381; font-weight: 600; font-size: 0.95rem;
@@ -141,13 +142,19 @@ $recent_exps = $pdo->query("SELECT * FROM expenses ORDER BY expense_date DESC LI
             <i class='bx bxs-dashboard'></i> <span>Dashboard</span>
         </a>
         <a href="fees.php" class="nav-item">
-            <i class='bx bx-money'></i> <span>Fees</span>
+            <i class='bx bx-money'></i> <span>Collect Fees</span>
+        </a>
+        <a href="manage_fees.php" class="nav-item">
+            <i class='bx bx-list-check'></i> <span>Manage Debts</span>
+        </a>
+        <a href="set_fees.php" class="nav-item">
+            <i class='bx bx-cog'></i> <span>Fee Structure</span>
         </a>
         <a href="expenses.php" class="nav-item">
-            <i class='bx bx-cart'></i> <span>Expenses</span>
+            <i class='bx bx-wallet-alt'></i> <span>Expenses</span>
         </a>
         <a href="report.php" class="nav-item">
-            <i class='bx bx-cart'></i> <span>Report</span>
+            <i class='bx bxs-report'></i> <span>Reports</span>
         </a>
     </div>
 
