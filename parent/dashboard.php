@@ -1,4 +1,6 @@
+
 <?php
+// parent/dashboard.php
 session_start();
 require '../config/db.php';
 
@@ -16,7 +18,8 @@ try {
     $unread_count = $notif_stmt->fetchColumn();
 
     // 2. Fetch ALL Linked Children
-    $stmt = $pdo->prepare("SELECT s.student_id, u.full_name, c.class_name, s.admission_number 
+    // MODIFIED: Also fetch expected_fees to calculate balance immediately
+    $stmt = $pdo->prepare("SELECT s.student_id, u.full_name, c.class_name, s.admission_number, s.expected_fees 
                            FROM parent_student_link psl
                            JOIN students s ON psl.student_id = s.student_id
                            JOIN users u ON s.student_id = u.user_id
@@ -31,7 +34,6 @@ try {
     die("Database Error: " . $e->getMessage());
 }
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
