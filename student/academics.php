@@ -6,6 +6,7 @@ require '../config/db.php';
 // --- TIMEZONE FIX ---
 date_default_timezone_set('Africa/Kigali'); 
 
+// 1. SECURITY CHECK
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'student') {
     header("Location: ../index.php"); exit;
 }
@@ -13,12 +14,16 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'student') {
 $student_id = $_SESSION['user_id'];
 $current_time = date("Y-m-d H:i:s");
 
-// 1. GET STUDENT CLASS
+// 2. INCLUDE HEADER
+$page_title = "Academic Portal";
+include '../includes/header.php';
+
+// 3. GET STUDENT CLASS
 $stmt = $pdo->prepare("SELECT class_id FROM students WHERE student_id = ?");
 $stmt->execute([$student_id]);
 $class_id = $stmt->fetchColumn();
 
-// 2. FETCH SUBJECTS
+// 4. FETCH SUBJECTS
 $sub_sql = "SELECT s.subject_id, s.subject_name,
             (SELECT COUNT(*) FROM online_assessments oa 
              WHERE oa.subject_id = s.subject_id AND oa.class_id = ? AND oa.status = 'published') as task_count
@@ -29,7 +34,7 @@ $sub_stmt = $pdo->prepare($sub_sql);
 $sub_stmt->execute([$class_id, $class_id]);
 $subjects = $sub_stmt->fetchAll();
 
-// 3. FETCH ASSESSMENTS
+// 5. FETCH ASSESSMENTS
 $task_sql = "SELECT oa.*, s.subject_name, u.full_name as teacher_name, 
              sub.id as submission_id, sub.obtained_marks, sub.is_marked
              FROM online_assessments oa
@@ -52,14 +57,14 @@ foreach($all_tasks as $t) {
     }
 }
 
-// Function to calculate time left
+// Helper: Calculate Time Left
 function getTimeLeft($end_time) {
     $now = new DateTime();
     $end = new DateTime($end_time);
-    $interval = $now->diff($end);
     
     if ($now > $end) return "Expired";
     
+    $interval = $now->diff($end);
     $parts = [];
     if ($interval->d > 0) $parts[] = $interval->d . "d";
     if ($interval->h > 0) $parts[] = $interval->h . "h";
@@ -69,56 +74,21 @@ function getTimeLeft($end_time) {
 }
 ?>
 
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Academic Portal | NGA</title>
-    <link rel="stylesheet" href="../assets/css/style.css">
-    <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
+<div class="container">
+
     <style>
-        /* === STANDARD VARIABLES === */
-        :root { 
-            --primary: #FF6600; 
-            --dark: #212b36; 
-            --light-bg: #f4f6f8; 
-            --white: #ffffff; 
-            --border: #dfe3e8; 
-            --nav-height: 75px;
-        }
+        /* === PAGE SPECIFIC CSS === */
         
-        body { background-color: var(--light-bg); margin: 0; font-family: 'Public Sans', sans-serif; }
+        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; flex-wrap: wrap; gap: 15px; }
+        .page-header h1 { margin: 0; font-size: 1.8rem; color: var(--dark); }
+        .active-badge { background: #e6f7ed; color: #00ab55; font-weight: 700; padding: 8px 15px; border-radius: 20px; font-size: 0.9rem; white-space: nowrap; }
 
-        /* HEADER */
-        .top-navbar {
-            position: fixed; top: 0; left: 0; width: 100%; height: var(--nav-height);
-            background: var(--white); z-index: 1000;
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 0 40px; box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-            border-bottom: 1px solid var(--border); box-sizing: border-box;
-            text-decoration: none;
-        }
-        .nav-brand { display: flex; align-items: center; gap: 15px; text-decoration: none; }
-        .logo-box { width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; background: #fafbfc; border-radius: 8px; border: 1px solid var(--border); }
-        .logo-box img { width: 80%; height: 80%; object-fit: contain; }
-        .nav-brand-text { font-size: 1.25rem; font-weight: 800; color: var(--dark); letter-spacing: -0.5px; }
-
-        .nav-menu { display: flex; gap: 5px; align-items: center; }
-        .nav-item { text-decoration: none; color: #637381; font-weight: 600; font-size: 0.95rem; padding: 10px 15px; border-radius: 8px; transition: 0.2s; display: flex; align-items: center; gap: 6px; }
-        .nav-item:hover { color: var(--primary); background: rgba(255, 102, 0, 0.05); }
-        .nav-item.active { background: var(--primary); color: white; }
-        .btn-logout { text-decoration: none; color: #ff4d4f; font-weight: 700; font-size: 0.85rem; padding: 8px 16px; border: 1.5px solid #ff4d4f; border-radius: 8px; transition: 0.2s; }
-
-        /* LAYOUT */
-        .main-content { margin-top: var(--nav-height); padding: 40px 5%; max-width: 1400px; margin-left: auto; margin-right: auto; }
-        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
-        
+        /* LAYOUT CONTAINER */
         .portal-container { display: flex; gap: 30px; align-items: flex-start; }
-        .sidebar { width: 260px; flex-shrink: 0; background: white; padding: 25px; border-radius: 16px; border: 1px solid var(--border); position: sticky; top: 90px; }
+        .sidebar { width: 260px; flex-shrink: 0; background: white; padding: 25px; border-radius: 16px; border: 1px solid var(--border); position: sticky; top: 100px; }
         .content-area { flex-grow: 1; min-width: 0; }
-        @media (max-width: 900px) { .portal-container { flex-direction: column; } .sidebar { width: 100%; box-sizing: border-box; position: static; } }
 
-        /* SIDEBAR FILTERS */
+        /* FILTERS */
         .sb-title { font-size: 0.75rem; text-transform: uppercase; color: #919eab; font-weight: 800; letter-spacing: 1px; margin-bottom: 15px; }
         .filter-btn { display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 12px 15px; border: none; background: transparent; color: #637381; font-weight: 600; cursor: pointer; border-radius: 10px; transition: 0.2s; margin-bottom: 5px; text-align: left; font-size: 0.9rem; }
         .filter-btn:hover { background: #f4f6f8; color: var(--dark); }
@@ -142,67 +112,75 @@ function getTimeLeft($end_time) {
         .bg-quiz { background: #fef3c7; color: #d97706; }
         .bg-assign { background: #e0f2f1; color: #00695c; }
 
-        /* INFO & TIME */
         .info-row { display: flex; justify-content: space-between; align-items: center; margin-top: 15px; padding-top: 15px; border-top: 1px dashed var(--border); }
         .time-badge { font-size: 0.85rem; font-weight: 700; display: flex; align-items: center; gap: 5px; }
         
         .timer-active { color: #d97706; animation: pulse 2s infinite; }
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
 
-        /* SCORE DISPLAY */
+        /* Score & Buttons */
         .score-box { text-align: right; }
         .score-val { font-size: 1.2rem; font-weight: 800; color: var(--dark); }
         .score-max { font-size: 0.8rem; color: #919eab; }
         .score-pending { font-size: 0.9rem; font-weight: 700; color: #ffc107; background: #fff7e6; padding: 4px 8px; border-radius: 8px; }
 
-        /* BUTTONS */
         .btn-action { margin-top: 20px; width: 100%; padding: 12px; border-radius: 10px; font-weight: 700; text-decoration: none; text-align: center; display: block; border: none; cursor: pointer; transition: 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; }
-        
         .btn-start { background: var(--dark); color: white; }
         .btn-start:hover { background: var(--primary); }
-        
         .btn-results { background: white; color: #00ab55; border: 2px solid #00ab55; }
         .btn-results:hover { background: #e6f7ed; }
-
         .btn-locked { background: #f4f6f8; color: #919eab; cursor: not-allowed; border: 1px solid var(--border); }
         .btn-closed { background: #fff0f0; color: #ff4d4f; cursor: not-allowed; border: 1px solid #ffebe6; }
 
+        /* === MOBILE RESPONSIVE TWEAKS === */
+        @media (max-width: 900px) {
+            .container { padding: 20px; margin: 0; }
+            .portal-container { flex-direction: column; gap: 20px; }
+            
+            /* Make Sidebar a Horizontal Scroll Bar on Mobile */
+            .sidebar { 
+                width: 100%; 
+                position: static; 
+                padding: 15px; 
+                display: flex; 
+                overflow-x: auto; 
+                gap: 10px; 
+                border-radius: 12px;
+                white-space: nowrap;
+                /* Hide Scrollbar */
+                -ms-overflow-style: none;  
+                scrollbar-width: none;  
+            }
+            .sidebar::-webkit-scrollbar { display: none; }
+
+            .sb-title { display: none; /* Hide title on mobile to save space */ }
+            
+            .filter-btn { 
+                width: auto; 
+                margin: 0; 
+                padding: 8px 15px; 
+                background: #f4f6f8; 
+                border-radius: 20px; 
+                flex-shrink: 0; 
+                border: 1px solid transparent;
+            }
+            .filter-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
+            /* Hide Badge on Mobile unless active to save width */
+            .filter-btn .badge { margin-left: 8px; background: rgba(0,0,0,0.1); color: inherit; }
+
+            .task-grid { grid-template-columns: 1fr; } /* Single column cards */
+            
+            .page-header h1 { font-size: 1.5rem; }
+        }
     </style>
-</head>
-<body>
 
-
-
-<nav class="top-navbar">
-    <a href="dashboard.php" class="nav-brand">
-        <div style="width:40px;"><img src="../assets/images/logo.png" alt="" style="width:100%;"></div>
-        Student Portal
-    </a>
-    <div class="nav-menu">
-        <a href="dashboard.php" class="nav-item "><i class='bx bxs-dashboard'></i> Dashboard</a>
-        <a href="academics.php" class="nav-item active"><i class='bx bxs-graduation'></i> Academics</a>
-        <a href="results.php" class="nav-item"><i class='bx bxs-bar-chart-alt-2'></i> My Results</a>
-        <a href="messages.php" class="nav-item"><i class='bx bxs-chat'></i> Messages</a>
-        <a href="attendance.php" class="nav-item"><i class='bx bxs-calendar-check'></i> <span>Attendance</span></a>
-         <a href="class_ranking.php" class="nav-item">
-            <i class='bx bxs-chat'></i> <span>Ranking</span>
-        </a>
-        <a href="profile.php" class="nav-item">
-    <i class='bx bxs-user-circle'></i> <span>Profile</span>
-</a>
-    </div>
-    <a href="../logout.php" class="btn-logout">Logout</a>
-</nav>
-
-<div class="main-content">
-    
     <div class="page-header">
         <div>
-            <h1 style="margin:0; font-size: 1.8rem; color: var(--dark);">Assessment Center</h1>
+            <h1>Assessment Center</h1>
             <p style="color: #637381; margin: 5px 0 0;">Manage your exams, quizzes, and digital assignments.</p>
         </div>
-        <span style="background: #e6f7ed; color: #00ab55; font-weight: 700; padding: 8px 15px; border-radius: 20px; font-size: 0.9rem;">
-            <?php echo $total_active; ?> Active Tasks
+        <span class="active-badge">
+            <i class='bx bx-pulse'></i> <?php echo $total_active; ?> Active Tasks
         </span>
     </div>
 
@@ -318,6 +296,7 @@ function getTimeLeft($end_time) {
 </div>
 
 <script>
+    // FILTER LOGIC
     function filterTasks(subId, btn) {
         document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
@@ -332,6 +311,7 @@ function getTimeLeft($end_time) {
         });
     }
 
+    // CONFIRM START
     function confirmStart(id, title) {
         if(confirm("Are you sure you want to start '" + title + "'?\n\nOnce started, the timer will begin and cannot be paused.")) {
             window.location.href = "take_assessment.php?id=" + id;
