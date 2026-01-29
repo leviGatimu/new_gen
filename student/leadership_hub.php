@@ -10,7 +10,7 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'student') {
 
 $user_id = $_SESSION['user_id'];
 
-// --- FIX: SPECIFY TABLE ALIASES (s.class_id) TO PREVENT AMBIGUITY ---
+// Check Leadership Role (Using specific table alias s.class_id to avoid ambiguity)
 $stmt = $pdo->prepare("SELECT s.leadership_role, u.full_name, s.class_id 
                        FROM students s 
                        JOIN users u ON s.student_id = u.user_id 
@@ -19,25 +19,19 @@ $stmt->execute([$user_id]);
 $me = $stmt->fetch();
 
 if (!in_array($me['leadership_role'], ['Head Boy', 'Head Girl'])) {
-    die("<div style='text-align:center; padding:50px; font-family:sans-serif; color:#666;'>
-            <h1>Access Denied</h1>
-            <p>This command center is restricted to the Head Boy and Head Girl.</p>
-            <a href='dashboard.php'>Return to Dashboard</a>
-         </div>");
+    die("Access Denied: Restricted to Head Boy/Girl.");
 }
-
-$page_title = "Leadership Hub";
-include '../includes/header.php'; // Use the Master Header
 
 $message = "";
 $msg_type = "";
 
-// --- ACTIONS ---
+// =========================================================
+//  LOGIC SECTION (MUST BE BEFORE HEADER INCLUDE)
+// =========================================================
 
 // A. PIN / UNPIN ISSUE
 if (isset($_GET['toggle_pin'])) {
     $id = $_GET['toggle_pin'];
-    // Check current state to toggle
     $curr = $pdo->prepare("SELECT is_pinned FROM student_issues WHERE issue_id = ?");
     $curr->execute([$id]);
     $state = $curr->fetchColumn();
@@ -45,17 +39,21 @@ if (isset($_GET['toggle_pin'])) {
     $new_state = ($state == 1) ? 0 : 1;
     $pdo->prepare("UPDATE student_issues SET is_pinned = ? WHERE issue_id = ?")->execute([$new_state, $id]);
     
-    header("Location: leadership_hub.php"); exit;
+    header("Location: leadership_hub.php"); 
+    exit; // Stop execution immediately after redirect
 }
 
-// B. FORWARD TO ADMIN
+// B. MARK AS RESOLVED
+if (isset($_GET['resolve'])) {
+    $pdo->prepare("UPDATE student_issues SET status = 'Resolved' WHERE issue_id = ?")->execute([$_GET['resolve']]);
+    header("Location: leadership_hub.php"); 
+    exit;
+}
+
+// C. FORWARD TO ADMIN (Escalate)
 if (isset($_GET['forward'])) {
     $issue_id = $_GET['forward'];
-    
-    // Fetch issue details
     $issue = $pdo->query("SELECT si.*, u.full_name FROM student_issues si JOIN users u ON si.sender_id = u.user_id WHERE si.issue_id = $issue_id")->fetch();
-    
-    // Fetch Admin ID
     $admin = $pdo->query("SELECT user_id FROM users WHERE role = 'admin' LIMIT 1")->fetch();
     
     if ($issue && $admin) {
@@ -71,17 +69,9 @@ if (isset($_GET['forward'])) {
     }
 }
 
-// C. MARK AS RESOLVED
-if (isset($_GET['resolve'])) {
-    $pdo->prepare("UPDATE student_issues SET status = 'Resolved' WHERE issue_id = ?")->execute([$_GET['resolve']]);
-    header("Location: leadership_hub.php"); exit;
-}
-
 // D. APPOINT PREFECT
 if (isset($_POST['make_prefect'])) {
     $adm_no = trim($_POST['admission_number']);
-    
-    // Check if student exists
     $check = $pdo->prepare("SELECT student_id, class_id FROM students WHERE admission_number = ?");
     $check->execute([$adm_no]);
     $target = $check->fetch();
@@ -97,7 +87,6 @@ if (isset($_POST['make_prefect'])) {
 }
 
 // --- FETCH DATA ---
-// 1. Issues (Pinned First, then Newest)
 $issues = $pdo->query("
     SELECT si.*, u.full_name, u.email 
     FROM student_issues si 
@@ -105,7 +94,6 @@ $issues = $pdo->query("
     ORDER BY si.is_pinned DESC, si.created_at DESC
 ")->fetchAll();
 
-// 2. Counts
 $count_open = 0;
 $count_pinned = 0;
 foreach($issues as $i) {
@@ -113,7 +101,6 @@ foreach($issues as $i) {
     if($i['is_pinned']) $count_pinned++;
 }
 
-// 3. Prefects List
 $prefects = $pdo->query("
     SELECT u.full_name, s.admission_number, c.class_name 
     FROM students s 
@@ -122,6 +109,12 @@ $prefects = $pdo->query("
     WHERE s.leadership_role = 'Prefect'
     ORDER BY c.class_name ASC
 ")->fetchAll();
+
+// =========================================================
+//  INCLUDE HEADER (ONLY AFTER ALL REDIRECTS ARE DONE)
+// =========================================================
+$page_title = "Leadership Hub";
+include '../includes/header.php'; 
 ?>
 
 <div class="container">
