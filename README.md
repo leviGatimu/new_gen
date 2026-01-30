@@ -81,6 +81,7 @@ We skipped heavy frameworks to build a blazing fast, custom UI.
 - [ ] **AI Chatbot:** Integration with Gemini API for student homework help.
 - [ ] **Mobile App:** Wrapper for the Parent Portal.
 - [ ] **Payment Gateway:** Integration with MoMo (MTN Mobile Money) API.
+ [ ] **Payment Gateway:** Integration with MoMo (MTN Mobile Money) API.
 
 ---
 
