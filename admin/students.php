@@ -12,31 +12,35 @@ $view_student_id = $_GET['view_id'] ?? null;
 $message = '';
 $msg_type = ''; 
 
-// --- FETCH CLASSES ---
-$classes_stmt = $pdo->query("SELECT * FROM classes ORDER BY class_id ASC");
+// --- FETCH CLASSES & SORT NATURALLY ---
+$classes_stmt = $pdo->query("SELECT * FROM classes");
 $classes = $classes_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// FIX: Natural Sort (So 'Grade 2' comes before 'Grade 10', and 'Grade 9' before 'Year 1')
+usort($classes, function($a, $b) {
+    return strnatcmp($a['class_name'], $b['class_name']);
+});
+
 $class_ids = array_column($classes, 'class_id'); 
 
-// --- ACTIONS HANDLER ---
+// --- ACTIONS HANDLER (Same Logic) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $s_id = $_POST['student_id'] ?? null;
     $c_id = $_POST['current_class_id'] ?? null;
 
-    // 1. RESET PASSWORD
+    // Reset Password
     if (isset($_POST['reset_password'])) {
         $pass = password_hash("123456", PASSWORD_DEFAULT);
         $pdo->prepare("UPDATE users SET password = ? WHERE user_id = ?")->execute([$pass, $s_id]);
         $message = "Password reset to default (123456)."; $msg_type = "success";
         $view_student_id = $s_id;
     }
-
-    // 2. DELETE STUDENT
+    // Delete Student
     if (isset($_POST['delete_student'])) {
         $pdo->prepare("DELETE FROM users WHERE user_id = ?")->execute([$s_id]);
         $message = "Student removed permanently."; $msg_type = "error";
     }
-
-    // 3. PROMOTE STUDENT
+    // Promote
     if (isset($_POST['promote_student'])) {
         $current_index = array_search($c_id, $class_ids);
         if ($current_index !== false && isset($class_ids[$current_index + 1])) {
@@ -47,8 +51,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = "Student is already in the highest class."; $msg_type = "warning";
         }
     }
-
-    // 4. DEMOTE STUDENT
+    // Demote
     if (isset($_POST['demote_student'])) {
         $current_index = array_search($c_id, $class_ids);
         if ($current_index !== false && isset($class_ids[$current_index - 1])) {
@@ -59,26 +62,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = "Student is in the lowest class."; $msg_type = "warning";
         }
     }
-
-    // 5. ASSIGN LEADERSHIP ROLE (FIXED LOGIC)
+    // Leadership Role
     if (isset($_POST['assign_role'])) {
-        $role = $_POST['assign_role']; 
-        
+        $role = $_POST['assign_role'];
         try {
             $pdo->beginTransaction();
-
-            // If appointing Head Boy/Girl, remove the title from the previous one
             if ($role === 'Head Boy' || $role === 'Head Girl') {
                 $pdo->prepare("UPDATE students SET leadership_role = NULL WHERE leadership_role = ?")->execute([$role]);
             }
-
-            // Assign new role (or remove if 'None')
             $final_role = ($role === 'None') ? NULL : $role;
             $pdo->prepare("UPDATE students SET leadership_role = ? WHERE student_id = ?")->execute([$final_role, $s_id]);
-
             $pdo->commit();
-            $message = "Leadership role updated to: " . ($final_role ?? "Student"); 
-            $msg_type = "success";
+            $message = "Leadership role updated."; $msg_type = "success";
         } catch (Exception $e) {
             $pdo->rollBack();
             $message = "Error assigning role."; $msg_type = "error";
@@ -91,9 +86,9 @@ $student_data = null;
 $student_marks = [];
 
 if ($view_student_id) {
+    // Profile Data
     $stmt = $pdo->prepare("SELECT u.*, s.admission_number, s.parent_access_code, s.leadership_role, c.class_name, c.class_id 
-                           FROM users u 
-                           JOIN students s ON u.user_id = s.student_id 
+                           FROM users u JOIN students s ON u.user_id = s.student_id 
                            LEFT JOIN classes c ON s.class_id = c.class_id
                            WHERE u.user_id = ?");
     $stmt->execute([$view_student_id]);
@@ -119,8 +114,8 @@ if ($view_student_id) {
         }
     }
 } else {
-    // Fetch students list
-    $sql = "SELECT users.user_id, users.full_name, users.email, students.admission_number, students.class_id, students.parent_access_code, students.leadership_role 
+    // List Data
+    $sql = "SELECT users.user_id, users.full_name, users.email, students.admission_number, students.class_id, students.leadership_role 
             FROM students JOIN users ON students.student_id = users.user_id 
             ORDER BY users.full_name ASC";
     $all_students = $pdo->query($sql)->fetchAll();
@@ -128,268 +123,431 @@ if ($view_student_id) {
     foreach ($all_students as $s) { $students_by_class[$s['class_id']][] = $s; }
 }
 
-// INCLUDE HEADER (Contains CSS and Nav)
 $page_title = "Manage Students";
 include '../includes/header.php';
-
 ?>
 
+<div class="container">
+
 <style>
-    /* === VARIABLES === */
-    :root { --primary: #FF6600; --primary-light: #fff0e6; --dark: #212b36; --light-bg: #f4f6f8; --white: #ffffff; --border: #dfe3e8; --nav-height: 75px; --danger: #ff4d4f; --success: #00ab55; --warning: #ffc107; --purple: #9c27b0; }
+    /* === UPGRADED DESIGN SYSTEM === */
+    :root { 
+        --primary: #FF6600; 
+        --primary-soft: #fff0e6;
+        --dark: #1e293b; 
+        --gray: #64748b; 
+        --bg-card: #ffffff;
+        --shadow-soft: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        --shadow-hover: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    }
+
+    .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 35px; }
+    .page-title { margin: 0; font-size: 1.8rem; color: var(--dark); font-weight: 800; letter-spacing: -0.5px; }
     
-    /* === CONTENT === */
-    .main-content { margin-top: 0; padding: 40px 5%; width: 100%; box-sizing: border-box; } /* Adjusted top margin since header handles it */
-    .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
-    .page-title { margin: 0; font-size: 1.8rem; color: var(--dark); font-weight: 800; }
+    .btn-add { 
+        background: var(--dark); color: white; padding: 12px 24px; 
+        border-radius: 12px; text-decoration: none; font-weight: 700; 
+        display: inline-flex; align-items: center; gap: 8px; transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: var(--shadow-soft);
+    }
+    .btn-add:hover { background: var(--primary); transform: translateY(-3px); box-shadow: var(--shadow-hover); }
 
-    .alert { padding: 15px 20px; border-radius: 10px; margin-bottom: 25px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
-    .alert-success { background: #e9fcd4; color: #229a16; border: 1px solid #b7eb8f; }
-    .alert-error { background: #ffe7d9; color: #7a0c2e; border: 1px solid #ffa39e; }
-    .alert-warning { background: #fff7cd; color: #7a4f01; border: 1px solid #ffe58f; }
-
-    .grid-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 25px; }
-    .class-card { background: var(--white); border-radius: 16px; padding: 25px; box-shadow: 0 4px 12px rgba(0,0,0,0.02); border: 1px solid var(--border); transition: 0.3s; position: relative; overflow: hidden; cursor: pointer; }
-    .class-card:hover { transform: translateY(-5px); border-color: var(--primary); box-shadow: 0 12px 24px rgba(0,0,0,0.08); }
-    .class-card::before { content: ''; position: absolute; top: 0; left: 0; width: 6px; height: 100%; background: var(--primary); opacity: 0.5; }
-    .class-icon { font-size: 2.5rem; color: var(--primary); margin-bottom: 15px; background: var(--primary-light); width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
-    .class-name { margin: 0; font-size: 1.2rem; font-weight: 700; color: var(--dark); }
-    .class-meta { color: #637381; font-size: 0.9rem; margin-top: 5px; font-weight: 500; }
-
-    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(33, 43, 54, 0.6); backdrop-filter: blur(4px); z-index: 2000; align-items: center; justify-content: center; }
-    .modal-box { background: var(--white); width: 95%; max-width: 1000px; height: 85vh; border-radius: 16px; display: flex; flex-direction: column; box-shadow: 0 20px 40px rgba(0,0,0,0.2); animation: slideUp 0.3s ease-out; }
-    @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    /* === NEW CARD GRID === */
+    .grid-container { 
+        display: grid; 
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); 
+        gap: 30px; 
+    }
     
-    .modal-header { padding: 20px 30px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: #fafbfc; border-radius: 16px 16px 0 0; }
-    .modal-body { padding: 0; overflow-y: auto; flex: 1; }
+    .class-card { 
+        background: var(--bg-card); 
+        border-radius: 20px; 
+        padding: 25px; 
+        position: relative; 
+        overflow: hidden; 
+        cursor: pointer;
+        transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        border: 1px solid #f1f5f9;
+        box-shadow: var(--shadow-soft);
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        height: 160px;
+    }
 
-    .styled-table { width: 100%; border-collapse: collapse; }
-    .styled-table th { background: #f9fafb; padding: 15px 25px; text-align: left; font-size: 0.75rem; text-transform: uppercase; color: #637381; font-weight: 700; position: sticky; top: 0; border-bottom: 1px solid var(--border); z-index: 10; }
-    .styled-table td { padding: 15px 25px; border-bottom: 1px solid #f4f6f8; font-size: 0.9rem; color: var(--dark); vertical-align: middle; }
-    .styled-table tr:hover { background: #f9fafb; }
+    .class-card:hover { 
+        transform: translateY(-8px); 
+        box-shadow: var(--shadow-hover);
+        border-color: var(--primary-soft);
+    }
 
-    .action-menu { position: relative; display: inline-block; }
-    .action-btn { background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #637381; padding: 5px; border-radius: 50%; transition: 0.2s; }
-    .action-btn:hover { background: #f4f6f8; color: var(--dark); }
-    .dropdown-content { display: none; position: absolute; right: 0; background-color: white; min-width: 180px; box-shadow: 0 8px 16px rgba(0,0,0,0.15); border-radius: 8px; z-index: 20; border: 1px solid var(--border); overflow: hidden; }
-    .dropdown-content button, .dropdown-content a { color: var(--dark); padding: 12px 16px; text-decoration: none; display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border: none; background: none; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: 0.2s; }
-    .dropdown-content button:hover, .dropdown-content a:hover { background-color: #f4f6f8; }
-    .dropdown-content button.danger { color: var(--danger); }
-    .dropdown-content button.danger:hover { background-color: #fff1f0; }
-    .dropdown-header { padding: 8px 16px; font-size: 0.7rem; text-transform: uppercase; color: #999; font-weight: 700; border-bottom: 1px solid #eee; background: #fafbfc; }
-    .show { display: block; }
+    /* Watermark Icon (Background) */
+    .class-card::before {
+        content: '\ec59'; /* Boxicons: bxs-school */
+        font-family: 'boxicons';
+        position: absolute;
+        bottom: -20px;
+        right: -20px;
+        font-size: 8rem;
+        color: rgba(0,0,0,0.03);
+        transform: rotate(-15deg);
+        transition: 0.3s;
+    }
+    .class-card:hover::before {
+        color: rgba(255, 102, 0, 0.08);
+        transform: rotate(0deg) scale(1.1);
+    }
 
-    .badge { padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
-    .bg-green { background: #e9fcd4; color: #229a16; }
-    .bg-orange { background: #fff7cd; color: #b78103; }
-    .bg-purple { background: #f3e5f5; color: #9c27b0; }
+    .card-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        z-index: 1;
+    }
 
-    .profile-container { display: grid; grid-template-columns: 350px 1fr; gap: 30px; }
-    .profile-sidebar { background: white; padding: 30px; border-radius: 16px; text-align: center; border: 1px solid var(--border); height: fit-content; }
-    .large-avatar { width: 120px; height: 120px; background: #212b36; color: white; font-size: 3.5rem; display: flex; align-items: center; justify-content: center; border-radius: 50%; margin: 0 auto 20px; font-weight: 800; }
-    .profile-content { background: white; padding: 30px; border-radius: 16px; border: 1px solid var(--border); }
-    .btn-add { background: var(--dark); color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 700; display: inline-flex; align-items: center; gap: 8px; }
-    .btn-add:hover { background: #000; }
+    .class-icon-box { 
+        width: 55px; height: 55px; 
+        background: linear-gradient(135deg, #FF6600 0%, #ff8534 100%);
+        color: white; 
+        border-radius: 14px; 
+        display: flex; align-items: center; justify-content: center; 
+        font-size: 1.8rem; 
+        box-shadow: 0 4px 10px rgba(255, 102, 0, 0.3);
+    }
+
+    .arrow-icon {
+        color: var(--gray);
+        font-size: 1.5rem;
+        opacity: 0;
+        transform: translateX(-10px);
+        transition: 0.3s;
+    }
+    .class-card:hover .arrow-icon { opacity: 1; transform: translateX(0); color: var(--primary); }
+
+    .card-info { z-index: 1; margin-top: 15px; }
+    .class-name { margin: 0; font-size: 1.4rem; font-weight: 800; color: var(--dark); line-height: 1.2; }
+    
+    .student-pill { 
+        display: inline-flex; align-items: center; gap: 5px;
+        margin-top: 8px; font-size: 0.85rem; font-weight: 700; 
+        color: var(--gray); background: #f8fafc; 
+        padding: 6px 12px; border-radius: 30px;
+        border: 1px solid #e2e8f0;
+    }
+    .class-card:hover .student-pill { background: var(--primary); color: white; border-color: var(--primary); }
+
+    /* === MODERN MODAL === */
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(8px); z-index: 2000; align-items: center; justify-content: center; }
+    .modal-box { background: #f8fafc; width: 95%; max-width: 1000px; height: 85vh; border-radius: 24px; display: flex; flex-direction: column; overflow: hidden; animation: zoomIn 0.2s ease; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); }
+    @keyframes zoomIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+    .modal-header { padding: 25px 30px; background: white; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; }
+    .modal-title h2 { margin: 0; font-size: 1.5rem; color: var(--dark); }
+    .modal-title span { color: var(--gray); font-size: 0.9rem; font-weight: 600; }
+    .btn-close { background: #f1f5f9; border: none; width: 40px; height: 40px; border-radius: 50%; font-size: 1.5rem; cursor: pointer; color: var(--gray); transition: 0.2s; display:flex; align-items:center; justify-content:center; }
+    .btn-close:hover { background: #fee2e2; color: #ef4444; }
+
+    .modal-body { padding: 20px; overflow-y: auto; flex: 1; }
+
+    /* === ROSTER LIST (Responsive) === */
+    .roster-list { display: flex; flex-direction: column; gap: 12px; }
+    
+    .roster-item { 
+        background: white; border-radius: 16px; padding: 15px 25px; 
+        display: flex; align-items: center; justify-content: space-between;
+        border: 1px solid transparent; box-shadow: 0 1px 3px rgba(0,0,0,0.05); 
+        transition: 0.2s;
+    }
+    .roster-item:hover { border-color: var(--primary); transform: translateX(5px); box-shadow: var(--shadow-soft); }
+
+    .s-profile { display: flex; align-items: center; gap: 15px; }
+    .s-avatar { 
+        width: 45px; height: 45px; background: #f1f5f9; border-radius: 12px; 
+        display: flex; align-items: center; justify-content: center; 
+        font-weight: 800; color: #64748b; font-size: 1.1rem;
+    }
+    .s-info div { font-weight: 700; color: var(--dark); font-size: 1rem; }
+    .s-info span { font-size: 0.85rem; color: var(--gray); font-family: 'Courier New', monospace; background: #f8fafc; padding: 2px 6px; border-radius: 4px; }
+
+    /* Action Menu */
+    .action-wrapper { position: relative; }
+    .action-btn { background: white; border: 1px solid #e2e8f0; width: 35px; height: 35px; border-radius: 10px; cursor: pointer; color: var(--gray); transition: 0.2s; display:flex; align-items:center; justify-content:center; }
+    .action-btn:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+
+    .dropdown-menu {
+        display: none; position: absolute; right: 0; top: 45px;
+        background: white; width: 200px; box-shadow: var(--shadow-hover);
+        border-radius: 12px; z-index: 100; overflow: hidden; border: 1px solid #e2e8f0;
+    }
+    .dropdown-menu.active { display: block; animation: slideDown 0.2s; }
+    @keyframes slideDown { from{opacity:0; transform:translateY(-10px);} to{opacity:1; transform:translateY(0);} }
+
+    .dropdown-menu a, .dropdown-menu button {
+        display: flex; align-items: center; gap: 12px; width: 100%;
+        padding: 12px 20px; text-decoration: none; color: var(--dark);
+        font-size: 0.9rem; font-weight: 600; border: none; background: none;
+        cursor: pointer; text-align: left; transition: 0.2s;
+    }
+    .dropdown-menu a:hover, .dropdown-menu button:hover { background: #f8fafc; color: var(--primary); padding-left: 25px; }
+    
+    .menu-divider { height: 1px; background: #f1f5f9; margin: 5px 0; }
+    .menu-header { font-size: 0.7rem; color: #94a3b8; padding: 8px 20px 4px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase; }
+    .text-danger { color: #ef4444 !important; }
+    .text-danger:hover { background: #fef2f2 !important; }
+
+    /* Profile View Layout */
+    .profile-wrap { display: grid; grid-template-columns: 350px 1fr; gap: 30px; }
+    .profile-card { background: white; border-radius: 24px; padding: 35px; border: 1px solid #e2e8f0; text-align: center; height: fit-content; box-shadow: var(--shadow-soft); }
+    .big-avatar { width: 120px; height: 120px; background: var(--dark); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 3.5rem; margin: 0 auto 20px; box-shadow: 0 10px 20px rgba(0,0,0,0.2); }
+    
+    /* Table Responsive */
+    .table-container { overflow-x: auto; }
+    .data-table { width: 100%; border-collapse: collapse; margin-top: 15px; min-width: 600px; }
+    .data-table th { text-align: left; padding: 15px; background: #f8fafc; font-size: 0.8rem; color: var(--gray); text-transform:uppercase; font-weight:700; border-radius: 8px; }
+    .data-table td { padding: 15px; border-bottom: 1px solid #f1f5f9; font-size: 0.95rem; font-weight: 600; color: var(--dark); }
+
+    /* Alerts */
+    .alert { padding: 15px; border-radius: 12px; margin-bottom: 25px; font-weight: 600; text-align: center; }
+    .alert-success { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
+    .alert-error { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+
+    /* Mobile */
+    @media (max-width: 900px) {
+        .profile-wrap { grid-template-columns: 1fr; }
+        .page-header { flex-direction: column; align-items: flex-start; gap: 15px; }
+        .btn-add { width: 100%; justify-content: center; }
+        .modal-box { width: 100%; height: 100%; border-radius: 0; }
+        .roster-item { flex-direction: column; align-items: flex-start; gap: 15px; }
+        .action-wrapper { width: 100%; display: flex; justify-content: flex-end; }
+        .grid-container { grid-template-columns: 1fr; }
+    }
 </style>
 
-<div class="main-content">
+<?php if ($view_student_id && $student_data): ?>
+    <div class="page-header">
+        <div style="display:flex; align-items:center; gap:15px;">
+            <a href="students.php" style="background:white; width:40px; height:40px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:var(--dark); box-shadow:var(--shadow-soft); text-decoration:none;"><i class='bx bx-arrow-back'></i></a>
+            <h1 class="page-title">Student Profile</h1>
+        </div>
+    </div>
 
-    <?php if ($view_student_id && $student_data): ?>
-        <div class="page-header">
-            <div style="display:flex; align-items:center; gap:15px;">
-                <a href="students.php" style="color:#637381; font-size:1.5rem;"><i class='bx bx-arrow-back'></i></a>
-                <h1 class="page-title">Student Profile</h1>
+    <?php if($message): ?>
+        <div class="alert alert-<?php echo $msg_type; ?>"><?php echo $message; ?></div>
+    <?php endif; ?>
+
+    <div class="profile-wrap">
+        <div class="profile-card">
+            <div class="big-avatar"><?php echo strtoupper(substr($student_data['full_name'], 0, 1)); ?></div>
+            <h2 style="margin:0; font-size:1.5rem;"><?php echo htmlspecialchars($student_data['full_name']); ?></h2>
+            <p style="color:var(--gray); margin-top:5px; font-weight:600;"><?php echo htmlspecialchars($student_data['class_name'] ?? 'Unassigned'); ?></p>
+            
+            <?php if($student_data['leadership_role']): ?>
+                <span class="student-pill" style="background:#f3e5f5; color:#9c27b0; border:none; margin-top:10px;">
+                    <i class='bx bxs-star'></i> <?php echo $student_data['leadership_role']; ?>
+                </span>
+            <?php endif; ?>
+
+            <div style="margin-top:25px; text-align:left; background:#f8fafc; padding:20px; border-radius:16px; border:1px solid #f1f5f9;">
+                <div style="margin-bottom:12px; font-size:0.9rem; display:flex; justify-content:space-between;">
+                    <span style="color:var(--gray);">Adm No:</span> <strong><?php echo $student_data['admission_number']; ?></strong>
+                </div>
+                <div style="margin-bottom:12px; font-size:0.9rem; display:flex; justify-content:space-between;">
+                    <span style="color:var(--gray);">Email:</span> <strong><?php echo $student_data['email'] ?: '-'; ?></strong>
+                </div>
+                <div style="font-size:0.9rem; display:flex; justify-content:space-between; align-items:center;">
+                    <span style="color:var(--gray);">Parent Code:</span> 
+                    <code style="background:#e2e8f0; padding:4px 8px; border-radius:6px; font-weight:bold; color:var(--dark);"><?php echo $student_data['parent_access_code']; ?></code>
+                </div>
             </div>
+
+            <form method="POST" style="margin-top:25px;" onsubmit="return confirm('Reset password to 123456?');">
+                <input type="hidden" name="student_id" value="<?php echo $student_data['user_id']; ?>">
+                <button type="submit" name="reset_password" style="width:100%; padding:14px; background:white; border:2px solid #fed7aa; color:#ea580c; border-radius:12px; cursor:pointer; font-weight:bold; transition:0.2s; display:flex; align-items:center; justify-content:center; gap:8px;">
+                    <i class='bx bx-reset'></i> Reset Password
+                </button>
+            </form>
         </div>
 
-        <?php if($message): ?>
-            <div class="alert alert-<?php echo $msg_type; ?>"><?php echo $message; ?></div>
-        <?php endif; ?>
-
-        <div class="profile-container">
-            <div class="profile-sidebar">
-                <div class="large-avatar">
-                    <?php echo strtoupper(substr($student_data['full_name'], 0, 1)); ?>
+        <div class="profile-card" style="text-align:left;">
+            <h3 style="margin-top:0; padding-bottom:15px; border-bottom:1px solid #eee; display:flex; align-items:center; gap:10px;">
+                <i class='bx bxs-graduation' style="color:var(--primary);"></i> Academic Results
+            </h3>
+            <?php if (empty($student_marks)): ?>
+                <div style="text-align:center; padding:60px; color:var(--gray);">
+                    <i class='bx bx-ghost' style="font-size:3rem; opacity:0.3; margin-bottom:10px;"></i>
+                    <p>No marks recorded for this student yet.</p>
                 </div>
-                <h2 style="margin:0;"><?php echo htmlspecialchars($student_data['full_name']); ?></h2>
-                <p style="color:#637381; font-weight:600; margin-bottom: 5px;"><?php echo htmlspecialchars($student_data['class_name'] ?? 'Unassigned'); ?></p>
-                
-                <?php if($student_data['leadership_role']): ?>
-                    <span class="badge bg-purple"><i class='bx bxs-star'></i> <?php echo $student_data['leadership_role']; ?></span>
-                <?php endif; ?>
-                
-                <div style="text-align:left; background:#f9fafb; padding:15px; border-radius:10px; margin-top:20px; font-size:0.9rem;">
-                    <div style="margin-bottom:10px;"><strong>Adm No:</strong> <span style="float:right;"><?php echo $student_data['admission_number']; ?></span></div>
-                    <div style="margin-bottom:10px;"><strong>Email:</strong> <span style="float:right;"><?php echo $student_data['email'] ?: 'N/A'; ?></span></div>
-                    <div><strong>Access Code:</strong> <span style="float:right; font-family:monospace; background:#e0e0e0; padding:2px 6px; border-radius:4px;"><?php echo $student_data['parent_access_code']; ?></span></div>
-                </div>
-
-                <form method="POST" style="margin-top:20px;" onsubmit="return confirm('Reset password to 123456?');">
-                    <input type="hidden" name="student_id" value="<?php echo $student_data['user_id']; ?>">
-                    <button type="submit" name="reset_password" style="width:100%; padding:10px; background:white; border:1px solid #ffccbc; color:#d84315; border-radius:8px; cursor:pointer; font-weight:bold;">
-                        <i class='bx bx-reset'></i> Reset Password
-                    </button>
-                </form>
-            </div>
-
-            <div class="profile-content">
-                <h3 style="margin-top:0; border-bottom:1px solid #eee; padding-bottom:15px;">Academic Results</h3>
-                <?php if (empty($student_marks)): ?>
-                    <p style="color:#999; text-align:center; padding:30px;">No marks recorded yet.</p>
-                <?php else: ?>
-                    <table class="styled-table">
+            <?php else: ?>
+                <div class="table-container">
+                    <table class="data-table">
                         <thead><tr><th>Subject</th><th>Breakdown</th><th>Score</th><th>Grade</th></tr></thead>
                         <tbody>
                             <?php foreach($student_marks as $sub => $data): 
                                 $pct = ($data['max'] > 0) ? ($data['total'] / $data['max']) * 100 : 0;
                                 $grade = ($pct >= 80) ? 'A' : (($pct >= 70) ? 'B' : (($pct >= 50) ? 'C' : 'F'));
-                                $color = ($grade == 'A' || $grade == 'B') ? '#229a16' : (($grade == 'F') ? '#b72136' : '#b78103');
+                                $color = ($grade == 'A' || $grade == 'B') ? '#16a34a' : (($grade == 'F') ? '#dc2626' : '#d97706');
                             ?>
                             <tr>
-                                <td><strong><?php echo htmlspecialchars($sub); ?></strong></td>
-                                <td style="color:#637381; font-size:0.85rem;"><?php echo implode(", ", $data['details']); ?></td>
-                                <td><?php echo $data['total']; ?> / <?php echo $data['max']; ?></td>
-                                <td style="font-weight:800; color:<?php echo $color; ?>;"><?php echo $grade; ?></td>
+                                <td><?php echo htmlspecialchars($sub); ?></td>
+                                <td style="color:var(--gray); font-size:0.8rem;"><?php echo implode(", ", $data['details']); ?></td>
+                                <td><?php echo $data['total']; ?> <span style="color:#aaa;">/ <?php echo $data['max']; ?></span></td>
+                                <td><span style="background:<?php echo $color; ?>20; color:<?php echo $color; ?>; padding:4px 10px; border-radius:6px; font-weight:800;"><?php echo $grade; ?></span></td>
                             </tr>
                             <?php endforeach; ?>
                         </tbody>
                     </table>
-                <?php endif; ?>
-            </div>
-        </div>
-
-    <?php else: ?>
-        <div class="page-header">
-            <div>
-                <h1 class="page-title">Manage Students</h1>
-                <p style="color:#637381; margin:5px 0 0;">Select a class to view, promote, or remove students.</p>
-            </div>
-            <a href="add_student.php" class="btn-add"><i class='bx bx-plus'></i> Add Student</a>
-        </div>
-
-        <?php if($message): ?>
-            <div class="alert alert-<?php echo $msg_type; ?>"><?php echo $message; ?></div>
-        <?php endif; ?>
-
-        <div class="grid-container">
-            <?php foreach($classes as $class): ?>
-                <?php $count = isset($students_by_class[$class['class_id']]) ? count($students_by_class[$class['class_id']]) : 0; ?>
-                
-                <div class="class-card" onclick="openModal('modal-<?php echo $class['class_id']; ?>')">
-                    <div class="class-icon"><i class='bx bxs-school'></i></div>
-                    <h3 class="class-name"><?php echo htmlspecialchars($class['class_name']); ?></h3>
-                    <div class="class-meta"><?php echo $count; ?> Students Enrolled</div>
                 </div>
+            <?php endif; ?>
+        </div>
+    </div>
 
-                <div id="modal-<?php echo $class['class_id']; ?>" class="modal">
-                    <div class="modal-box">
-                        <div class="modal-header">
-                            <div>
-                                <h2 style="margin:0;"><?php echo htmlspecialchars($class['class_name']); ?></h2>
-                                <span style="font-size:0.9rem; color:#637381;">Class Management</span>
+<?php else: ?>
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">Manage Students</h1>
+            <p style="color:var(--gray); margin:5px 0 0;">Select a class to manage roster and roles.</p>
+        </div>
+        <a href="add_student.php" class="btn-add"><i class='bx bx-user-plus'></i> Add Student</a>
+    </div>
+
+    <?php if($message): ?>
+        <div class="alert alert-<?php echo $msg_type; ?>"><?php echo $message; ?></div>
+    <?php endif; ?>
+
+    <div class="grid-container">
+        <?php foreach($classes as $class): ?>
+            <?php $count = isset($students_by_class[$class['class_id']]) ? count($students_by_class[$class['class_id']]) : 0; ?>
+            
+            <div class="class-card" onclick="openModal('modal-<?php echo $class['class_id']; ?>')">
+                <div class="card-top">
+                    <div class="class-icon-box">
+                        <i class='bx bxs-graduation'></i>
+                    </div>
+                    <i class='bx bx-right-arrow-alt arrow-icon'></i>
+                </div>
+                
+                <div class="card-info">
+                    <h3 class="class-name"><?php echo htmlspecialchars($class['class_name']); ?></h3>
+                    <span class="student-pill">
+                        <i class='bx bxs-user'></i> <?php echo $count; ?> Students
+                    </span>
+                </div>
+            </div>
+
+            <div id="modal-<?php echo $class['class_id']; ?>" class="modal">
+                <div class="modal-box">
+                    <div class="modal-header">
+                        <div class="modal-title">
+                            <h2><?php echo htmlspecialchars($class['class_name']); ?></h2>
+                            <span>Class Roster Management</span>
+                        </div>
+                        <button onclick="closeModal('modal-<?php echo $class['class_id']; ?>')" class="btn-close"><i class='bx bx-x'></i></button>
+                    </div>
+                    
+                    <div class="modal-body">
+                        <?php if($count > 0): ?>
+                            <div class="roster-list">
+                                <?php foreach($students_by_class[$class['class_id']] as $s): ?>
+                                    <div class="roster-item">
+                                        <div class="s-profile">
+                                            <div class="s-avatar"><?php echo substr($s['full_name'], 0, 1); ?></div>
+                                            <div class="s-info">
+                                                <div>
+                                                    <?php echo htmlspecialchars($s['full_name']); ?>
+                                                    <?php if($s['leadership_role']): ?>
+                                                        <span style="font-size:0.7rem; background:#f3e5f5; color:#9c27b0; padding:2px 6px; border-radius:4px; text-transform:uppercase; margin-left:5px;">
+                                                            <i class='bx bxs-star'></i> <?php echo $s['leadership_role']; ?>
+                                                        </span>
+                                                    <?php endif; ?>
+                                                </div>
+                                                <span><?php echo $s['admission_number']; ?></span>
+                                            </div>
+                                        </div>
+
+                                        <div class="action-wrapper">
+                                            <button class="action-btn" onclick="toggleDropdown(event, 'dd-<?php echo $s['user_id']; ?>')">
+                                                <i class='bx bx-dots-vertical-rounded'></i>
+                                            </button>
+                                            
+                                            <div id="dd-<?php echo $s['user_id']; ?>" class="dropdown-menu">
+                                                <a href="?view_id=<?php echo $s['user_id']; ?>"><i class='bx bx-id-card'></i> Profile</a>
+                                                
+                                                <div class="menu-divider"></div>
+                                                <div class="menu-header">ACADEMIC</div>
+                                                
+                                                <form method="POST" style="margin:0;">
+                                                    <input type="hidden" name="student_id" value="<?php echo $s['user_id']; ?>">
+                                                    <input type="hidden" name="current_class_id" value="<?php echo $class['class_id']; ?>">
+                                                    
+                                                    <button type="submit" name="promote_student"><i class='bx bx-up-arrow-alt'></i> Promote</button>
+                                                    <button type="submit" name="demote_student"><i class='bx bx-down-arrow-alt'></i> Demote</button>
+                                                    
+                                                    <div class="menu-divider"></div>
+                                                    <div class="menu-header">ROLE</div>
+                                                    <button type="submit" name="assign_role" value="Head Boy"><i class='bx bxs-star'></i> Head Boy</button>
+                                                    <button type="submit" name="assign_role" value="Head Girl"><i class='bx bxs-star'></i> Head Girl</button>
+                                                    <button type="submit" name="assign_role" value="Prefect"><i class='bx bxs-badge'></i> Prefect</button>
+                                                    <?php if($s['leadership_role']): ?>
+                                                        <button type="submit" name="assign_role" value="None" style="color:#666;"><i class='bx bx-x'></i> Remove Role</button>
+                                                    <?php endif; ?>
+
+                                                    <div class="menu-divider"></div>
+                                                    <button type="submit" name="delete_student" class="text-danger" onclick="return confirm('Delete this user permanently?');"><i class='bx bx-trash'></i> Delete User</button>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
                             </div>
-                            <button onclick="closeModal('modal-<?php echo $class['class_id']; ?>')" style="background:none; border:none; font-size:1.5rem; cursor:pointer;"><i class='bx bx-x'></i></button>
-                        </div>
-                        <div class="modal-body">
-                            <table class="styled-table">
-                                <thead>
-                                    <tr>
-                                        <th>Student Name</th>
-                                        <th>Admission No</th>
-                                        <th>Status</th>
-                                        <th style="text-align:right;">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php if($count > 0): ?>
-                                        <?php foreach($students_by_class[$class['class_id']] as $s): ?>
-                                        <tr>
-                                            <td style="font-weight:600;">
-                                                <div style="display:flex; align-items:center; gap:10px;">
-                                                    <div style="width:30px; height:30px; background:#f4f6f8; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.8rem; color:#637381;">
-                                                        <?php echo substr($s['full_name'], 0, 1); ?>
-                                                    </div>
-                                                    <div>
-                                                        <?php echo htmlspecialchars($s['full_name']); ?>
-                                                        <?php if($s['leadership_role']): ?>
-                                                            <span class="badge bg-purple" style="font-size:0.6rem; margin-left:5px;"><?php echo $s['leadership_role']; ?></span>
-                                                        <?php endif; ?>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            <td style="color:#637381; font-family:monospace;"><?php echo $s['admission_number']; ?></td>
-                                            <td>
-                                                <?php if($s['email']): ?>
-                                                    <span class="badge bg-green">Active</span>
-                                                <?php else: ?>
-                                                    <span class="badge bg-orange">No Email</span>
-                                                <?php endif; ?>
-                                            </td>
-                                            <td style="text-align:right;">
-                                                <div class="action-menu">
-                                                    <button class="action-btn" onclick="toggleMenu(event, 'menu-<?php echo $s['user_id']; ?>')"><i class='bx bx-dots-vertical-rounded'></i></button>
-                                                    <div id="menu-<?php echo $s['user_id']; ?>" class="dropdown-content">
-                                                        <a href="?view_id=<?php echo $s['user_id']; ?>"><i class='bx bx-id-card'></i> View Profile</a>
-                                                        
-                                                        <form method="POST">
-                                                            <input type="hidden" name="student_id" value="<?php echo $s['user_id']; ?>">
-                                                            <input type="hidden" name="current_class_id" value="<?php echo $class['class_id']; ?>">
-                                                            
-                                                            <div class="dropdown-header">ACADEMIC</div>
-                                                            <button type="submit" name="promote_student"><i class='bx bx-up-arrow-alt'></i> Promote</button>
-                                                            <button type="submit" name="demote_student"><i class='bx bx-down-arrow-alt'></i> Demote</button>
-                                                            
-                                                            <div class="dropdown-header">LEADERSHIP</div>
-                                                            <button type="submit" name="assign_role" value="Head Boy"><i class='bx bxs-star'></i> Make Head Boy</button>
-                                                            <button type="submit" name="assign_role" value="Head Girl"><i class='bx bxs-star'></i> Make Head Girl</button>
-                                                            <button type="submit" name="assign_role" value="Prefect"><i class='bx bxs-badge'></i> Make Prefect</button>
-                                                            <?php if($s['leadership_role']): ?>
-                                                                <button type="submit" name="assign_role" value="None" style="color:#666;"><i class='bx bx-x-circle'></i> Remove Role</button>
-                                                            <?php endif; ?>
-
-                                                            <div class="dropdown-header">DANGER ZONE</div>
-                                                            <button type="submit" name="delete_student" class="danger" onclick="return confirm('Are you sure?');"><i class='bx bx-trash'></i> Remove User</button>
-                                                        </form>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                        <?php endforeach; ?>
-                                    <?php else: ?>
-                                        <tr><td colspan="4" style="text-align:center; padding:50px; color:#999;">No students found in this class.</td></tr>
-                                    <?php endif; ?>
-                                </tbody>
-                            </table>
-                        </div>
+                        <?php else: ?>
+                            <div style="text-align:center; padding:50px; color:var(--gray);">
+                                <i class='bx bx-ghost' style="font-size:3rem;"></i>
+                                <p>No students enrolled in this class.</p>
+                            </div>
+                        <?php endif; ?>
                     </div>
                 </div>
-            <?php endforeach; ?>
-        </div>
-    <?php endif; ?>
+            </div>
+        <?php endforeach; ?>
+    </div>
+<?php endif; ?>
 
 </div>
 
 <script>
-    function openModal(id) { document.getElementById(id).style.display = 'flex'; }
-    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+    // Open Class Modal
+    function openModal(id) { 
+        document.getElementById(id).style.display = 'flex'; 
+    }
     
-    function toggleMenu(event, menuId) {
-        event.stopPropagation();
-        var dropdowns = document.getElementsByClassName("dropdown-content");
-        for (var i = 0; i < dropdowns.length; i++) {
-            if (dropdowns[i].id !== menuId) { dropdowns[i].classList.remove('show'); }
-        }
-        document.getElementById(menuId).classList.toggle("show");
+    // Close Modal
+    function closeModal(id) { 
+        document.getElementById(id).style.display = 'none';
+        closeAllDropdowns();
     }
 
+    // Toggle Dropdown (Stop Propagation)
+    function toggleDropdown(event, id) {
+        event.stopPropagation();
+        closeAllDropdowns(); // Close others first
+        var menu = document.getElementById(id);
+        if (menu) menu.classList.toggle('active');
+    }
+
+    // Close all dropdowns
+    function closeAllDropdowns() {
+        document.querySelectorAll('.dropdown-menu').forEach(el => el.classList.remove('active'));
+    }
+
+    // Window Click
     window.onclick = function(event) {
-        if (!event.target.matches('.action-btn') && !event.target.matches('.action-btn i')) {
-            var dropdowns = document.getElementsByClassName("dropdown-content");
-            for (var i = 0; i < dropdowns.length; i++) {
-                if (dropdowns[i].classList.contains('show')) { dropdowns[i].classList.remove('show'); }
-            }
+        if (!event.target.closest('.action-wrapper')) {
+            closeAllDropdowns();
         }
-        if (event.target.classList.contains('modal')) { event.target.style.display = 'none'; }
+        if (event.target.classList.contains('modal')) {
+            event.target.style.display = 'none';
+            closeAllDropdowns();
+        }
     }
 </script>
 
