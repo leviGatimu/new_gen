@@ -3,201 +3,217 @@
 session_start();
 require '../config/db.php';
 
+// 1. SECURITY
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
-    header("Location: ../index.php");
-    exit;
+    header("Location: ../index.php"); exit;
 }
 
-// Fetch all teachers
-$stmt = $pdo->query("SELECT * FROM users WHERE role = 'teacher' ORDER BY full_name ASC");
-$teachers = $stmt->fetchAll();
+$page_title = "Manage Teachers";
+
+// 2. FETCH TEACHERS DATA (FIXED QUERY)
+// We use a subquery to fetch subjects from 'teacher_allocations' specifically.
+$sql = "
+    SELECT 
+        u.*, 
+        c_main.class_name AS main_class,
+        (
+            SELECT GROUP_CONCAT(DISTINCT s.subject_name SEPARATOR '||') 
+            FROM teacher_allocations ta 
+            JOIN subjects s ON ta.subject_id = s.subject_id 
+            WHERE ta.teacher_id = u.user_id
+        ) as subjects_list
+    FROM users u
+    LEFT JOIN classes c_main ON u.user_id = c_main.class_teacher_id
+    WHERE u.role = 'teacher'
+    ORDER BY u.full_name ASC
+";
+
+$teachers = $pdo->query($sql)->fetchAll();
+
+// 3. INCLUDE HEADER
+include '../includes/header.php';
 ?>
 
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Manage Teachers | NGA Admin</title>
-    <link rel="stylesheet" href="../assets/css/style.css">
-    <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
-    
+<div class="container">
+
     <style>
-        /* === THEME VARIABLES === */
+        /* === MODERN CARD STYLING === */
         :root { 
             --primary: #FF6600; 
-            --primary-hover: #e65c00;
-            --dark: #212b36; 
-            --light-bg: #f4f6f8; 
-            --white: #ffffff; 
-            --border: #dfe3e8; 
-            --nav-height: 75px;
+            --dark: #1e293b; 
+            --gray: #64748b; 
+            --bg-card: #ffffff;
+            --shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
         }
+
+        .page-header { 
+            display: flex; justify-content: space-between; align-items: center; 
+            margin-bottom: 30px; flex-wrap: wrap; gap: 15px; 
+        }
+        .page-title { margin: 0; font-size: 1.8rem; color: var(--dark); font-weight: 800; }
         
-        /* Layout Fix: Allow natural scrolling */
-        html, body { 
-            background-color: var(--light-bg); 
-            margin: 0; padding: 0; 
-            font-family: 'Public Sans', sans-serif;
-            overflow-y: auto;
-            height: auto;
+        .btn-add { 
+            background: var(--dark); color: white; padding: 12px 24px; 
+            border-radius: 10px; text-decoration: none; font-weight: 700; 
+            display: inline-flex; align-items: center; gap: 8px; transition: 0.2s;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+        }
+        .btn-add:hover { background: var(--primary); transform: translateY(-2px); }
+
+        /* GRID */
+        .teacher-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+            gap: 25px;
         }
 
-        /* === TOP NAVIGATION BAR === */
-        .top-navbar {
-            position: fixed; top: 0; left: 0; width: 100%; height: var(--nav-height);
-            background: var(--white); z-index: 1000;
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 0 40px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-            border-bottom: 1px solid var(--border);
-            box-sizing: border-box; /* Fix for Logout button off-screen */
+        /* CARD */
+        .t-card {
+            background: var(--bg-card); border-radius: 20px; padding: 25px;
+            border: 1px solid #f1f5f9; box-shadow: var(--shadow);
+            transition: all 0.3s ease; position: relative;
+            display: flex; flex-direction: column;
+        }
+        .t-card:hover { transform: translateY(-5px); box-shadow: 0 15px 30px rgba(0,0,0,0.1); border-color: #ffd8a8; }
+
+        /* Card Header */
+        .t-header { display: flex; align-items: center; gap: 15px; margin-bottom: 15px; }
+        .t-avatar { 
+            width: 55px; height: 55px; background: #f8fafc; border-radius: 14px; 
+            display: flex; align-items: center; justify-content: center; 
+            font-size: 1.4rem; font-weight: 800; color: var(--gray); border: 2px solid #e2e8f0;
+        }
+        .t-info h3 { margin: 0; font-size: 1.1rem; color: var(--dark); font-weight: 700; }
+        .t-email { margin: 2px 0 0; color: var(--gray); font-size: 0.85rem; display: flex; align-items: center; gap: 5px; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: #22c55e; }
+
+        /* Role Badge */
+        .role-badge {
+            background: linear-gradient(135deg, #6366f1, #4f46e5);
+            color: white; padding: 5px 12px; border-radius: 30px;
+            font-size: 0.75rem; font-weight: 700; display: inline-flex; 
+            align-items: center; gap: 6px; margin-bottom: 15px; width: fit-content;
+            box-shadow: 0 4px 10px rgba(79, 70, 229, 0.2);
         }
 
-        .nav-brand { display: flex; align-items: center; gap: 15px; text-decoration: none; }
-        .logo-box { width: 45px; height: 45px; display: flex; align-items: center; justify-content: center;  }
-        .logo-box img { width: 80%; height: 80%; object-fit: contain; }
-        .nav-brand-text { font-size: 1.25rem; font-weight: 800; color: var(--dark); letter-spacing: -0.5px; }
-
-        .nav-menu { display: flex; gap: 5px; align-items: center; }
-        .nav-item {
-            text-decoration: none; color: #637381; font-weight: 600; font-size: 0.95rem;
-            padding: 10px 15px; border-radius: 8px; transition: 0.2s;
-            display: flex; align-items: center; gap: 6px;
+        /* SUBJECTS SECTION (NEW CSS) */
+        .t-subjects { 
+            background: #f8fafc; padding: 15px; border-radius: 12px; 
+            border: 1px dashed #e2e8f0; flex: 1; margin-bottom: 15px;
         }
-        .nav-item:hover { color: var(--primary); background: rgba(255, 102, 0, 0.05); }
-        .nav-item.active { background: var(--primary); color: white; }
-
-        .btn-logout {
-            text-decoration: none; color: #ff4d4f; font-weight: 700; font-size: 0.85rem;
-            padding: 8px 16px; border: 1.5px solid #ff4d4f; border-radius: 8px; transition: 0.2s;
+        .ts-title { 
+            font-size: 0.7rem; text-transform: uppercase; color: #94a3b8; 
+            font-weight: 800; margin-bottom: 10px; display: block; letter-spacing: 0.5px;
         }
-        .btn-logout:hover { background: #ff4d4f; color: white; }
-
-        /* === CONTENT AREA === */
-        .main-content {
-            margin-top: var(--nav-height);
-            padding: 0;
-            width: 100%;
-            min-height: calc(100vh - var(--nav-height));
-            display: block;
-        }
-
-        .page-header {
-            background: var(--white); padding: 20px 40px;
-            display: flex; justify-content: space-between; align-items: center;
-            border-bottom: 1px solid var(--border);
-        }
-        .page-title { margin: 0; font-size: 1.5rem; color: var(--dark); font-weight: 700; }
-
-        /* === TEACHER CARD STYLES === */
-        .content-container { padding: 30px 40px; max-width: 1000px; margin: 0 auto; }
-
-        .teacher-card {
-            background: var(--white); padding: 25px; border-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.02);
-            display: flex; justify-content: space-between; align-items: center;
-            margin-bottom: 20px; border: 1px solid var(--border); border-left: 5px solid var(--primary);
-            transition: transform 0.2s;
-        }
-        .teacher-card:hover { transform: translateX(5px); box-shadow: 0 10px 20px rgba(0,0,0,0.05); }
-
-        .teacher-info h3 { margin: 0 0 5px 0; color: var(--dark); font-size: 1.1rem; }
-        .teacher-meta { display: flex; align-items: center; gap: 15px; font-size: 0.9rem; color: #637381; }
+        .tag-container { display: flex; flex-wrap: wrap; gap: 8px; }
         
-        .badge { padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
-        .badge-active { background: #d1e7dd; color: #0f5132; }
-        .badge-pending { background: #fff3cd; color: #856404; }
-        .key-box { font-family: monospace; background: #eee; padding: 2px 6px; border-radius: 4px; color: var(--dark); }
-
-        /* Buttons */
-        .btn-action {
-            background: var(--primary); color: white; padding: 10px 24px;
-            border-radius: 8px; text-decoration: none; font-weight: 600;
-            display: inline-flex; align-items: center; gap: 8px; border: none; cursor: pointer;
-            transition: 0.2s; box-shadow: 0 4px 10px rgba(255, 102, 0, 0.2);
+        /* The "Good CSS" for Subjects */
+        .sub-tag { 
+            background: #f3e5f5; border: 1px solid #e9d5ff; color: #7e22ce; 
+            padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 700;
+            display: inline-block;
         }
-        .btn-action:hover { background: var(--primary-hover); transform: translateY(-2px); }
-
-        .btn-assign {
-            background: var(--dark); color: white; padding: 8px 16px; 
-            border-radius: 6px; font-size: 0.85rem; text-decoration: none; font-weight: 500;
-            display: inline-flex; align-items: center; gap: 6px; transition: 0.2s;
+        .sub-more {
+            background: #e2e8f0; color: #64748b; padding: 4px 8px; 
+            border-radius: 6px; font-size: 0.75rem; font-weight: 600;
         }
-        .btn-assign:hover { background: #334155; }
+        .no-sub { color: #cbd5e1; font-style: italic; font-size: 0.85rem; }
 
-        /* Responsive */
-        @media (max-width: 900px) {
-            .nav-menu span { display: none; }
-            .teacher-card { flex-direction: column; align-items: flex-start; gap: 15px; }
-            .teacher-actions { width: 100%; display: flex; justify-content: flex-end; }
+        /* Footer */
+        .t-footer { 
+            margin-top: auto; padding-top: 15px; border-top: 1px solid #f1f5f9; 
+            display: flex; justify-content: flex-end; align-items: center; 
+        }
+        .btn-manage { 
+            color: #c2410c; background: #fff7ed; text-decoration: none; font-weight: 700; 
+            font-size: 0.9rem; display: flex; align-items: center; gap: 5px; 
+            padding: 8px 16px; border-radius: 8px; transition: 0.2s; 
+        }
+        .btn-manage:hover { background: #ffedd5; color: #ea580c; }
+
+        @media (max-width: 768px) {
+            .teacher-grid { grid-template-columns: 1fr; }
         }
     </style>
-</head>
-<body>
 
-<nav class="top-navbar">
-    <a href="dashboard.php" class="nav-brand">
-        <div class="logo-box"><img src="../assets/images/logo.png" alt="NGA"></div>
-        <span class="nav-brand-text">NGA Admin</span>
-    </a>
-    <div class="nav-menu">
-        <a href="dashboard.php" class="nav-item"><i class='bx bxs-dashboard'></i> <span>Dashboard</span></a>
-        <a href="students.php" class="nav-item active"><i class='bx bxs-user-detail'></i> <span>Students</span></a>
-        <a href="teachers.php" class="nav-item"><i class='bx bxs-id-card'></i> <span>Teachers</span></a>
-        <a href="leadership.php" class="nav-item"><i class='bx bxs-star'></i>Leadership</a>
-        <a href="classes.php" class="nav-item"><i class='bx bxs-school'></i> <span>Classes</span></a>
-        <a href="finance_report.php" class="nav-item"><i class='bx bxs-bar-chart-alt-2'></i> <span>Finance</span></a>
-        <a href="events.php" class="nav-item"><i class="fa-solid fa-calendar"></i></i> <span>Events</span></a>
-        <a href="settings.php" class="nav-item"><i class='bx bxs-cog'></i> <span>Settings</span></a>
-    </div>
-    <div class="nav-user"><a href="../logout.php" class="btn-logout">Logout</a></div>
-</nav>
-
-<div class="main-content">
-    
     <div class="page-header">
-        <h1 class="page-title">Manage Teachers</h1>
-        <a href="add_teacher.php" class="btn-action">
-            <i class='bx bx-user-plus'></i> Add New Teacher
+        <div>
+            <h1 class="page-title">Manage Teachers</h1>
+            <p style="color:var(--gray); margin:5px 0 0;">Overview of faculty roles and assignments.</p>
+        </div>
+        <a href="add_teacher.php" class="btn-add">
+            <i class='bx bx-user-plus'></i> Add Teacher
         </a>
     </div>
 
-    <div class="content-container">
-        <?php if(count($teachers) > 0): ?>
-            <?php foreach($teachers as $teacher): ?>
-                <?php $isActive = !empty($teacher['email']); ?>
+    <div class="teacher-grid">
+        
+        <?php if(empty($teachers)): ?>
+            <div style="grid-column: 1/-1; text-align:center; padding:60px; color:var(--gray);">
+                <i class='bx bx-user-x' style="font-size:4rem; opacity:0.3; margin-bottom:15px;"></i>
+                <p>No teachers found.</p>
+            </div>
+        <?php else: ?>
+            
+            <?php foreach($teachers as $t): 
+                $isActive = !empty($t['email']);
+                // Explode the subject list string into an array
+                $subjects = !empty($t['subjects_list']) ? explode('||', $t['subjects_list']) : [];
+            ?>
+            <div class="t-card">
                 
-                <div class="teacher-card">
-                    <div class="teacher-info">
-                        <h3><?php echo htmlspecialchars($teacher['full_name']); ?></h3>
-                        <div class="teacher-meta">
-                            <?php if($isActive): ?>
-                                <span class="badge badge-active">Active</span>
-                                <span><i class='bx bx-envelope'></i> <?php echo htmlspecialchars($teacher['email']); ?></span>
-                            <?php else: ?>
-                                <span class="badge badge-pending">Pending Activation</span>
-                                <span>Key: <span class="key-box"><?php echo $teacher['access_key']; ?></span></span>
-                            <?php endif; ?>
-                        </div>
+                <div class="t-header">
+                    <div class="t-avatar">
+                        <?php echo strtoupper(substr($t['full_name'], 0, 1)); ?>
                     </div>
-                    
-                    <div class="teacher-actions">
-                        <a href="assign_teacher.php?id=<?php echo $teacher['user_id']; ?>" class="btn-assign">
-                            <i class='bx bx-layer'></i> Assign Subjects
-                        </a>
+                    <div class="t-info">
+                        <h3><?php echo htmlspecialchars($t['full_name']); ?></h3>
+                        <div class="t-email">
+                            <span class="status-dot" style="background: <?php echo $isActive ? '#22c55e' : '#f59e0b'; ?>"></span> 
+                            <?php echo $isActive ? htmlspecialchars($t['email']) : 'Pending Setup'; ?>
+                        </div>
                     </div>
                 </div>
 
-            <?php endforeach; ?>
-        <?php else: ?>
-            <div style="text-align: center; padding: 50px; color: #999;">
-                <i class='bx bx-user-x' style="font-size: 3rem; margin-bottom: 10px;"></i>
-                <p>No teachers found in the system.</p>
-            </div>
-        <?php endif; ?>
-    </div>
+                <?php if(!empty($t['main_class'])): ?>
+                    <div class="role-badge">
+                        <i class='bx bxs-graduation'></i> Class Teacher: <?php echo htmlspecialchars($t['main_class']); ?>
+                    </div>
+                <?php endif; ?>
 
-    <div style="height: 60px;"></div>
+                <div class="t-subjects">
+                    <span class="ts-title">SUBJECTS ASSIGNED</span>
+                    <div class="tag-container">
+                        <?php if(!empty($subjects)): ?>
+                            <?php 
+                                $limit = 3; // Show first 3
+                                foreach(array_slice($subjects, 0, $limit) as $sub) {
+                                    echo '<span class="sub-tag">'.htmlspecialchars($sub).'</span>';
+                                }
+                                if(count($subjects) > $limit) {
+                                    echo '<span class="sub-more">+'.(count($subjects)-$limit).' more</span>';
+                                }
+                            ?>
+                        <?php else: ?>
+                            <span class="no-sub">No subjects assigned yet.</span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+
+                <div class="t-footer">
+                    <a href="assign_teacher.php?id=<?php echo $t['user_id']; ?>" class="btn-manage">
+                        Manage <i class='bx bx-chevron-right'></i>
+                    </a>
+                </div>
+
+            </div>
+            <?php endforeach; ?>
+
+        <?php endif; ?>
+
+    </div>
+    
+    <div style="height: 50px;"></div>
 </div>
 
 </body>

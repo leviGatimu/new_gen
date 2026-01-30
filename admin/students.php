@@ -16,53 +16,44 @@ $msg_type = '';
 $classes_stmt = $pdo->query("SELECT * FROM classes");
 $classes = $classes_stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// FIX: Natural Sort (So 'Grade 2' comes before 'Grade 10', and 'Grade 9' before 'Year 1')
+// FIX: Natural Sort (So 'Grade 9' comes before 'Year 1')
 usort($classes, function($a, $b) {
     return strnatcmp($a['class_name'], $b['class_name']);
 });
 
 $class_ids = array_column($classes, 'class_id'); 
 
-// --- ACTIONS HANDLER (Same Logic) ---
+// --- ACTIONS HANDLER ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $s_id = $_POST['student_id'] ?? null;
     $c_id = $_POST['current_class_id'] ?? null;
 
-    // Reset Password
     if (isset($_POST['reset_password'])) {
         $pass = password_hash("123456", PASSWORD_DEFAULT);
         $pdo->prepare("UPDATE users SET password = ? WHERE user_id = ?")->execute([$pass, $s_id]);
-        $message = "Password reset to default (123456)."; $msg_type = "success";
+        $message = "Password reset to 123456."; $msg_type = "success";
         $view_student_id = $s_id;
     }
-    // Delete Student
     if (isset($_POST['delete_student'])) {
         $pdo->prepare("DELETE FROM users WHERE user_id = ?")->execute([$s_id]);
-        $message = "Student removed permanently."; $msg_type = "error";
+        $message = "Student removed."; $msg_type = "error";
     }
-    // Promote
     if (isset($_POST['promote_student'])) {
         $current_index = array_search($c_id, $class_ids);
         if ($current_index !== false && isset($class_ids[$current_index + 1])) {
             $new_class_id = $class_ids[$current_index + 1];
             $pdo->prepare("UPDATE students SET class_id = ? WHERE student_id = ?")->execute([$new_class_id, $s_id]);
-            $message = "Student promoted successfully."; $msg_type = "success";
-        } else {
-            $message = "Student is already in the highest class."; $msg_type = "warning";
-        }
+            $message = "Promoted successfully."; $msg_type = "success";
+        } else { $message = "Already in highest class."; $msg_type = "warning"; }
     }
-    // Demote
     if (isset($_POST['demote_student'])) {
         $current_index = array_search($c_id, $class_ids);
         if ($current_index !== false && isset($class_ids[$current_index - 1])) {
             $new_class_id = $class_ids[$current_index - 1];
             $pdo->prepare("UPDATE students SET class_id = ? WHERE student_id = ?")->execute([$new_class_id, $s_id]);
-            $message = "Student demoted."; $msg_type = "warning";
-        } else {
-            $message = "Student is in the lowest class."; $msg_type = "warning";
-        }
+            $message = "Demoted successfully."; $msg_type = "warning";
+        } else { $message = "Already in lowest class."; $msg_type = "warning"; }
     }
-    // Leadership Role
     if (isset($_POST['assign_role'])) {
         $role = $_POST['assign_role'];
         try {
@@ -73,7 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $final_role = ($role === 'None') ? NULL : $role;
             $pdo->prepare("UPDATE students SET leadership_role = ? WHERE student_id = ?")->execute([$final_role, $s_id]);
             $pdo->commit();
-            $message = "Leadership role updated."; $msg_type = "success";
+            $message = "Role updated."; $msg_type = "success";
         } catch (Exception $e) {
             $pdo->rollBack();
             $message = "Error assigning role."; $msg_type = "error";
@@ -130,29 +121,28 @@ include '../includes/header.php';
 <div class="container">
 
 <style>
-    /* === UPGRADED DESIGN SYSTEM === */
+    /* === MODERN DESIGN SYSTEM === */
     :root { 
         --primary: #FF6600; 
         --primary-soft: #fff0e6;
         --dark: #1e293b; 
         --gray: #64748b; 
         --bg-card: #ffffff;
-        --shadow-soft: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-        --shadow-hover: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        --shadow-soft: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        --shadow-hover: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
     }
 
-    .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 35px; }
-    .page-title { margin: 0; font-size: 1.8rem; color: var(--dark); font-weight: 800; letter-spacing: -0.5px; }
+    .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 35px; flex-wrap: wrap; gap: 15px; }
+    .page-title { margin: 0; font-size: 1.8rem; color: var(--dark); font-weight: 800; }
     
     .btn-add { 
         background: var(--dark); color: white; padding: 12px 24px; 
         border-radius: 12px; text-decoration: none; font-weight: 700; 
-        display: inline-flex; align-items: center; gap: 8px; transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        box-shadow: var(--shadow-soft);
+        display: inline-flex; align-items: center; gap: 8px; transition: 0.2s;
     }
-    .btn-add:hover { background: var(--primary); transform: translateY(-3px); box-shadow: var(--shadow-hover); }
+    .btn-add:hover { background: var(--primary); transform: translateY(-2px); }
 
-    /* === NEW CARD GRID === */
+    /* === GRID & CARDS === */
     .grid-container { 
         display: grid; 
         grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); 
@@ -160,166 +150,100 @@ include '../includes/header.php';
     }
     
     .class-card { 
-        background: var(--bg-card); 
-        border-radius: 20px; 
-        padding: 25px; 
-        position: relative; 
-        overflow: hidden; 
-        cursor: pointer;
-        transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-        border: 1px solid #f1f5f9;
-        box-shadow: var(--shadow-soft);
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-        height: 160px;
+        background: var(--bg-card); border-radius: 20px; padding: 25px; 
+        position: relative; overflow: hidden; cursor: pointer;
+        transition: all 0.3s ease; border: 1px solid #f1f5f9;
+        box-shadow: var(--shadow-soft); height: 160px;
+        display: flex; flex-direction: column; justify-content: space-between;
     }
-
-    .class-card:hover { 
-        transform: translateY(-8px); 
-        box-shadow: var(--shadow-hover);
-        border-color: var(--primary-soft);
-    }
-
-    /* Watermark Icon (Background) */
+    .class-card:hover { transform: translateY(-5px); box-shadow: var(--shadow-hover); border-color: var(--primary-soft); }
+    
     .class-card::before {
-        content: '\ec59'; /* Boxicons: bxs-school */
-        font-family: 'boxicons';
-        position: absolute;
-        bottom: -20px;
-        right: -20px;
-        font-size: 8rem;
-        color: rgba(0,0,0,0.03);
-        transform: rotate(-15deg);
-        transition: 0.3s;
+        content: '\ec59'; font-family: 'boxicons'; position: absolute; bottom: -20px; right: -20px;
+        font-size: 8rem; color: rgba(0,0,0,0.03); transform: rotate(-15deg); transition: 0.3s;
     }
-    .class-card:hover::before {
-        color: rgba(255, 102, 0, 0.08);
-        transform: rotate(0deg) scale(1.1);
-    }
+    .class-card:hover::before { color: rgba(255, 102, 0, 0.08); transform: rotate(0deg) scale(1.1); }
 
-    .card-top {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        z-index: 1;
-    }
-
+    .card-top { display: flex; align-items: center; justify-content: space-between; z-index: 1; }
     .class-icon-box { 
-        width: 55px; height: 55px; 
-        background: linear-gradient(135deg, #FF6600 0%, #ff8534 100%);
-        color: white; 
-        border-radius: 14px; 
-        display: flex; align-items: center; justify-content: center; 
-        font-size: 1.8rem; 
-        box-shadow: 0 4px 10px rgba(255, 102, 0, 0.3);
+        width: 50px; height: 50px; background: linear-gradient(135deg, #FF6600, #ff8534);
+        color: white; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; 
     }
-
-    .arrow-icon {
-        color: var(--gray);
-        font-size: 1.5rem;
-        opacity: 0;
-        transform: translateX(-10px);
-        transition: 0.3s;
-    }
-    .class-card:hover .arrow-icon { opacity: 1; transform: translateX(0); color: var(--primary); }
-
-    .card-info { z-index: 1; margin-top: 15px; }
-    .class-name { margin: 0; font-size: 1.4rem; font-weight: 800; color: var(--dark); line-height: 1.2; }
-    
+    .card-info { z-index: 1; }
+    .class-name { margin: 0; font-size: 1.4rem; font-weight: 800; color: var(--dark); }
     .student-pill { 
-        display: inline-flex; align-items: center; gap: 5px;
-        margin-top: 8px; font-size: 0.85rem; font-weight: 700; 
-        color: var(--gray); background: #f8fafc; 
-        padding: 6px 12px; border-radius: 30px;
-        border: 1px solid #e2e8f0;
+        display: inline-flex; align-items: center; gap: 5px; margin-top: 8px; font-size: 0.85rem; 
+        font-weight: 700; color: var(--gray); background: #f8fafc; padding: 6px 12px; 
+        border-radius: 30px; border: 1px solid #e2e8f0;
     }
-    .class-card:hover .student-pill { background: var(--primary); color: white; border-color: var(--primary); }
 
-    /* === MODERN MODAL === */
-    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(8px); z-index: 2000; align-items: center; justify-content: center; }
-    .modal-box { background: #f8fafc; width: 95%; max-width: 1000px; height: 85vh; border-radius: 24px; display: flex; flex-direction: column; overflow: hidden; animation: zoomIn 0.2s ease; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); }
-    @keyframes zoomIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-
-    .modal-header { padding: 25px 30px; background: white; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; }
-    .modal-title h2 { margin: 0; font-size: 1.5rem; color: var(--dark); }
-    .modal-title span { color: var(--gray); font-size: 0.9rem; font-weight: 600; }
-    .btn-close { background: #f1f5f9; border: none; width: 40px; height: 40px; border-radius: 50%; font-size: 1.5rem; cursor: pointer; color: var(--gray); transition: 0.2s; display:flex; align-items:center; justify-content:center; }
-    .btn-close:hover { background: #fee2e2; color: #ef4444; }
-
-    .modal-body { padding: 20px; overflow-y: auto; flex: 1; }
-
-    /* === ROSTER LIST (Responsive) === */
-    .roster-list { display: flex; flex-direction: column; gap: 12px; }
-    
-    .roster-item { 
-        background: white; border-radius: 16px; padding: 15px 25px; 
-        display: flex; align-items: center; justify-content: space-between;
-        border: 1px solid transparent; box-shadow: 0 1px 3px rgba(0,0,0,0.05); 
-        transition: 0.2s;
-    }
-    .roster-item:hover { border-color: var(--primary); transform: translateX(5px); box-shadow: var(--shadow-soft); }
-
-    .s-profile { display: flex; align-items: center; gap: 15px; }
-    .s-avatar { 
-        width: 45px; height: 45px; background: #f1f5f9; border-radius: 12px; 
-        display: flex; align-items: center; justify-content: center; 
-        font-weight: 800; color: #64748b; font-size: 1.1rem;
-    }
-    .s-info div { font-weight: 700; color: var(--dark); font-size: 1rem; }
-    .s-info span { font-size: 0.85rem; color: var(--gray); font-family: 'Courier New', monospace; background: #f8fafc; padding: 2px 6px; border-radius: 4px; }
-
-    /* Action Menu */
-    .action-wrapper { position: relative; }
-    .action-btn { background: white; border: 1px solid #e2e8f0; width: 35px; height: 35px; border-radius: 10px; cursor: pointer; color: var(--gray); transition: 0.2s; display:flex; align-items:center; justify-content:center; }
-    .action-btn:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
-
-    .dropdown-menu {
-        display: none; position: absolute; right: 0; top: 45px;
-        background: white; width: 200px; box-shadow: var(--shadow-hover);
-        border-radius: 12px; z-index: 100; overflow: hidden; border: 1px solid #e2e8f0;
-    }
-    .dropdown-menu.active { display: block; animation: slideDown 0.2s; }
-    @keyframes slideDown { from{opacity:0; transform:translateY(-10px);} to{opacity:1; transform:translateY(0);} }
-
-    .dropdown-menu a, .dropdown-menu button {
-        display: flex; align-items: center; gap: 12px; width: 100%;
-        padding: 12px 20px; text-decoration: none; color: var(--dark);
-        font-size: 0.9rem; font-weight: 600; border: none; background: none;
-        cursor: pointer; text-align: left; transition: 0.2s;
-    }
-    .dropdown-menu a:hover, .dropdown-menu button:hover { background: #f8fafc; color: var(--primary); padding-left: 25px; }
-    
-    .menu-divider { height: 1px; background: #f1f5f9; margin: 5px 0; }
-    .menu-header { font-size: 0.7rem; color: #94a3b8; padding: 8px 20px 4px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase; }
-    .text-danger { color: #ef4444 !important; }
-    .text-danger:hover { background: #fef2f2 !important; }
-
-    /* Profile View Layout */
+    /* === PROFILE VIEW (RESPONSIVE FIX) === */
     .profile-wrap { display: grid; grid-template-columns: 350px 1fr; gap: 30px; }
-    .profile-card { background: white; border-radius: 24px; padding: 35px; border: 1px solid #e2e8f0; text-align: center; height: fit-content; box-shadow: var(--shadow-soft); }
-    .big-avatar { width: 120px; height: 120px; background: var(--dark); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 3.5rem; margin: 0 auto 20px; box-shadow: 0 10px 20px rgba(0,0,0,0.2); }
     
-    /* Table Responsive */
-    .table-container { overflow-x: auto; }
-    .data-table { width: 100%; border-collapse: collapse; margin-top: 15px; min-width: 600px; }
-    .data-table th { text-align: left; padding: 15px; background: #f8fafc; font-size: 0.8rem; color: var(--gray); text-transform:uppercase; font-weight:700; border-radius: 8px; }
+    /* Profile Cards */
+    .profile-card { 
+        background: white; border-radius: 20px; padding: 30px; 
+        border: 1px solid #e2e8f0; box-shadow: var(--shadow-soft); 
+        height: fit-content;
+        /* FIX: Prevent card from overflowing on mobile */
+        max-width: 100%; 
+        box-sizing: border-box;
+        overflow: hidden; 
+    }
+    
+    /* Table Wrapper Fix */
+    .table-container { 
+        width: 100%; 
+        overflow-x: auto; 
+        display: block;
+        -webkit-overflow-scrolling: touch; /* smooth scroll on iOS */
+    }
+    
+    .data-table { 
+        width: 100%; border-collapse: collapse; margin-top: 10px; 
+        min-width: 600px; /* Forces scroll only if needed */
+    }
+    .data-table th { text-align: left; padding: 15px; background: #f8fafc; font-size: 0.8rem; color: var(--gray); text-transform:uppercase; font-weight:700; }
     .data-table td { padding: 15px; border-bottom: 1px solid #f1f5f9; font-size: 0.95rem; font-weight: 600; color: var(--dark); }
 
-    /* Alerts */
-    .alert { padding: 15px; border-radius: 12px; margin-bottom: 25px; font-weight: 600; text-align: center; }
-    .alert-success { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
-    .alert-error { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+    /* === MODAL === */
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(5px); z-index: 2000; align-items: center; justify-content: center; }
+    .modal-box { background: #fff; width: 95%; max-width: 900px; height: 80vh; border-radius: 20px; display: flex; flex-direction: column; overflow: hidden; animation: zoomIn 0.2s ease; }
+    @keyframes zoomIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    
+    .modal-header { padding: 20px 30px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; background: white; }
+    .btn-close { background: #f1f5f9; border: none; width: 35px; height: 35px; border-radius: 50%; font-size: 1.5rem; cursor: pointer; display:flex; align-items:center; justify-content:center; }
+    .modal-body { padding: 20px; overflow-y: auto; flex: 1; background: #f8fafc; }
 
-    /* Mobile */
+    /* Roster Items */
+    .roster-list { display: flex; flex-direction: column; gap: 10px; }
+    .roster-item { 
+        background: white; border-radius: 12px; padding: 15px; 
+        display: flex; align-items: center; justify-content: space-between;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05); border: 1px solid transparent; 
+        flex-wrap: wrap; /* Helps on tiny screens */
+    }
+    .roster-item:hover { border-color: var(--primary); transform: translateX(5px); transition:0.2s; }
+    
+    .s-profile { display: flex; align-items: center; gap: 15px; flex: 1; min-width: 200px; }
+    .s-avatar { width: 40px; height: 40px; background: #f1f5f9; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: 800; color: #64748b; }
+    
+    /* Dropdown */
+    .action-wrapper { position: relative; }
+    .action-btn { width: 35px; height: 35px; border-radius: 8px; border: 1px solid #e2e8f0; background: white; cursor: pointer; color: var(--gray); display:flex; align-items:center; justify-content:center; }
+    .dropdown-menu { display: none; position: absolute; right: 0; top: 40px; background: white; width: 180px; box-shadow: var(--shadow-hover); border-radius: 12px; z-index: 100; border: 1px solid #e2e8f0; overflow: hidden; }
+    .dropdown-menu.active { display: block; animation: slideDown 0.2s; }
+    @keyframes slideDown { from{opacity:0; transform:translateY(-10px);} to{opacity:1; transform:translateY(0);} }
+    .dropdown-menu button, .dropdown-menu a { display: block; width: 100%; text-align: left; padding: 10px 15px; background: none; border: none; font-size: 0.85rem; font-weight: 600; color: var(--dark); cursor: pointer; text-decoration: none; }
+    .dropdown-menu button:hover { background: #f8fafc; color: var(--primary); }
+    
+    /* Mobile Media Queries */
     @media (max-width: 900px) {
         .profile-wrap { grid-template-columns: 1fr; }
-        .page-header { flex-direction: column; align-items: flex-start; gap: 15px; }
-        .btn-add { width: 100%; justify-content: center; }
+        .page-header { flex-direction: column; align-items: flex-start; }
+        .btn-add { width: 100%; justify-content: center; margin-top: 10px; }
         .modal-box { width: 100%; height: 100%; border-radius: 0; }
-        .roster-item { flex-direction: column; align-items: flex-start; gap: 15px; }
-        .action-wrapper { width: 100%; display: flex; justify-content: flex-end; }
-        .grid-container { grid-template-columns: 1fr; }
+        .roster-item { gap: 10px; }
     }
 </style>
 
@@ -332,18 +256,20 @@ include '../includes/header.php';
     </div>
 
     <?php if($message): ?>
-        <div class="alert alert-<?php echo $msg_type; ?>"><?php echo $message; ?></div>
+        <div class="alert alert-<?php echo $msg_type; ?>" style="padding:15px; background:#e0f2f1; color:#00695c; border-radius:8px; margin-bottom:20px; text-align:center; font-weight:bold;"><?php echo $message; ?></div>
     <?php endif; ?>
 
     <div class="profile-wrap">
-        <div class="profile-card">
-            <div class="big-avatar"><?php echo strtoupper(substr($student_data['full_name'], 0, 1)); ?></div>
+        <div class="profile-card" style="text-align: center;">
+            <div style="width:100px; height:100px; background:var(--dark); color:white; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:3rem; margin:0 auto 20px; font-weight:800;">
+                <?php echo strtoupper(substr($student_data['full_name'], 0, 1)); ?>
+            </div>
             <h2 style="margin:0; font-size:1.5rem;"><?php echo htmlspecialchars($student_data['full_name']); ?></h2>
             <p style="color:var(--gray); margin-top:5px; font-weight:600;"><?php echo htmlspecialchars($student_data['class_name'] ?? 'Unassigned'); ?></p>
             
             <?php if($student_data['leadership_role']): ?>
-                <span class="student-pill" style="background:#f3e5f5; color:#9c27b0; border:none; margin-top:10px;">
-                    <i class='bx bxs-star'></i> <?php echo $student_data['leadership_role']; ?>
+                <span style="background:#f3e5f5; color:#9c27b0; padding:4px 12px; border-radius:20px; font-size:0.8rem; font-weight:700;">
+                    <?php echo $student_data['leadership_role']; ?>
                 </span>
             <?php endif; ?>
 
@@ -368,15 +294,10 @@ include '../includes/header.php';
             </form>
         </div>
 
-        <div class="profile-card" style="text-align:left;">
-            <h3 style="margin-top:0; padding-bottom:15px; border-bottom:1px solid #eee; display:flex; align-items:center; gap:10px;">
-                <i class='bx bxs-graduation' style="color:var(--primary);"></i> Academic Results
-            </h3>
+        <div class="profile-card">
+            <h3 style="margin-top:0; padding-bottom:15px; border-bottom:1px solid #eee;">Academic Results</h3>
             <?php if (empty($student_marks)): ?>
-                <div style="text-align:center; padding:60px; color:var(--gray);">
-                    <i class='bx bx-ghost' style="font-size:3rem; opacity:0.3; margin-bottom:10px;"></i>
-                    <p>No marks recorded for this student yet.</p>
-                </div>
+                <p style="text-align:center; color:#999; padding:20px;">No marks recorded yet.</p>
             <?php else: ?>
                 <div class="table-container">
                     <table class="data-table">
@@ -391,7 +312,7 @@ include '../includes/header.php';
                                 <td><?php echo htmlspecialchars($sub); ?></td>
                                 <td style="color:var(--gray); font-size:0.8rem;"><?php echo implode(", ", $data['details']); ?></td>
                                 <td><?php echo $data['total']; ?> <span style="color:#aaa;">/ <?php echo $data['max']; ?></span></td>
-                                <td><span style="background:<?php echo $color; ?>20; color:<?php echo $color; ?>; padding:4px 10px; border-radius:6px; font-weight:800;"><?php echo $grade; ?></span></td>
+                                <td style="color:<?php echo $color; ?>; font-weight:800;"><?php echo $grade; ?></td>
                             </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -407,11 +328,11 @@ include '../includes/header.php';
             <h1 class="page-title">Manage Students</h1>
             <p style="color:var(--gray); margin:5px 0 0;">Select a class to manage roster and roles.</p>
         </div>
-        <a href="add_student.php" class="btn-add"><i class='bx bx-user-plus'></i> Add Student</a>
+        <a href="add_student.php" class="btn-add"><i class='bx bx-user-plus'></i> New Student</a>
     </div>
 
     <?php if($message): ?>
-        <div class="alert alert-<?php echo $msg_type; ?>"><?php echo $message; ?></div>
+        <div class="alert alert-<?php echo $msg_type; ?>" style="background:#e0f2f1; color:#00695c; padding:15px; border-radius:8px; margin-bottom:20px; text-align:center;"><?php echo $message; ?></div>
     <?php endif; ?>
 
     <div class="grid-container">
@@ -420,26 +341,21 @@ include '../includes/header.php';
             
             <div class="class-card" onclick="openModal('modal-<?php echo $class['class_id']; ?>')">
                 <div class="card-top">
-                    <div class="class-icon-box">
-                        <i class='bx bxs-graduation'></i>
-                    </div>
-                    <i class='bx bx-right-arrow-alt arrow-icon'></i>
+                    <div class="class-icon-box"><i class='bx bxs-graduation'></i></div>
+                    <i class='bx bx-right-arrow-alt' style="color:var(--primary); font-size:1.5rem;"></i>
                 </div>
-                
                 <div class="card-info">
                     <h3 class="class-name"><?php echo htmlspecialchars($class['class_name']); ?></h3>
-                    <span class="student-pill">
-                        <i class='bx bxs-user'></i> <?php echo $count; ?> Students
-                    </span>
+                    <span class="student-pill"><?php echo $count; ?> Students</span>
                 </div>
             </div>
 
             <div id="modal-<?php echo $class['class_id']; ?>" class="modal">
                 <div class="modal-box">
                     <div class="modal-header">
-                        <div class="modal-title">
-                            <h2><?php echo htmlspecialchars($class['class_name']); ?></h2>
-                            <span>Class Roster Management</span>
+                        <div>
+                            <h2 style="margin:0; font-size:1.4rem; color:var(--dark);"><?php echo htmlspecialchars($class['class_name']); ?></h2>
+                            <span style="color:var(--gray); font-size:0.9rem;">Class Roster</span>
                         </div>
                         <button onclick="closeModal('modal-<?php echo $class['class_id']; ?>')" class="btn-close"><i class='bx bx-x'></i></button>
                     </div>
@@ -451,16 +367,12 @@ include '../includes/header.php';
                                     <div class="roster-item">
                                         <div class="s-profile">
                                             <div class="s-avatar"><?php echo substr($s['full_name'], 0, 1); ?></div>
-                                            <div class="s-info">
-                                                <div>
-                                                    <?php echo htmlspecialchars($s['full_name']); ?>
-                                                    <?php if($s['leadership_role']): ?>
-                                                        <span style="font-size:0.7rem; background:#f3e5f5; color:#9c27b0; padding:2px 6px; border-radius:4px; text-transform:uppercase; margin-left:5px;">
-                                                            <i class='bx bxs-star'></i> <?php echo $s['leadership_role']; ?>
-                                                        </span>
-                                                    <?php endif; ?>
-                                                </div>
-                                                <span><?php echo $s['admission_number']; ?></span>
+                                            <div class="s-details">
+                                                <div style="font-weight:700; color:var(--dark);"><?php echo htmlspecialchars($s['full_name']); ?></div>
+                                                <span style="font-size:0.85rem; color:var(--gray); font-family:monospace;"><?php echo $s['admission_number']; ?></span>
+                                                <?php if($s['leadership_role']): ?>
+                                                    <span style="font-size:0.7rem; background:#f3e5f5; color:#9c27b0; padding:2px 6px; border-radius:4px; margin-left:5px; text-transform:uppercase; font-weight:700;"><?php echo $s['leadership_role']; ?></span>
+                                                <?php endif; ?>
                                             </div>
                                         </div>
 
@@ -472,27 +384,20 @@ include '../includes/header.php';
                                             <div id="dd-<?php echo $s['user_id']; ?>" class="dropdown-menu">
                                                 <a href="?view_id=<?php echo $s['user_id']; ?>"><i class='bx bx-id-card'></i> Profile</a>
                                                 
-                                                <div class="menu-divider"></div>
-                                                <div class="menu-header">ACADEMIC</div>
+                                                <div style="height:1px; background:#eee; margin:5px 0;"></div>
+                                                <div style="font-size:0.7rem; color:#999; padding:5px 15px; font-weight:700;">ROLES</div>
                                                 
                                                 <form method="POST" style="margin:0;">
                                                     <input type="hidden" name="student_id" value="<?php echo $s['user_id']; ?>">
                                                     <input type="hidden" name="current_class_id" value="<?php echo $class['class_id']; ?>">
                                                     
-                                                    <button type="submit" name="promote_student"><i class='bx bx-up-arrow-alt'></i> Promote</button>
-                                                    <button type="submit" name="demote_student"><i class='bx bx-down-arrow-alt'></i> Demote</button>
+                                                    <button type="submit" name="promote_student">Promote</button>
+                                                    <button type="submit" name="assign_role" value="Head Boy">Make Head Boy</button>
+                                                    <button type="submit" name="assign_role" value="Head Girl">Make Head Girl</button>
+                                                    <button type="submit" name="assign_role" value="Prefect">Make Prefect</button>
                                                     
-                                                    <div class="menu-divider"></div>
-                                                    <div class="menu-header">ROLE</div>
-                                                    <button type="submit" name="assign_role" value="Head Boy"><i class='bx bxs-star'></i> Head Boy</button>
-                                                    <button type="submit" name="assign_role" value="Head Girl"><i class='bx bxs-star'></i> Head Girl</button>
-                                                    <button type="submit" name="assign_role" value="Prefect"><i class='bx bxs-badge'></i> Prefect</button>
-                                                    <?php if($s['leadership_role']): ?>
-                                                        <button type="submit" name="assign_role" value="None" style="color:#666;"><i class='bx bx-x'></i> Remove Role</button>
-                                                    <?php endif; ?>
-
-                                                    <div class="menu-divider"></div>
-                                                    <button type="submit" name="delete_student" class="text-danger" onclick="return confirm('Delete this user permanently?');"><i class='bx bx-trash'></i> Delete User</button>
+                                                    <div style="height:1px; background:#eee; margin:5px 0;"></div>
+                                                    <button type="submit" name="delete_student" style="color:#ef4444;" onclick="return confirm('Delete user?');">Delete</button>
                                                 </form>
                                             </div>
                                         </div>
@@ -502,7 +407,7 @@ include '../includes/header.php';
                         <?php else: ?>
                             <div style="text-align:center; padding:50px; color:var(--gray);">
                                 <i class='bx bx-ghost' style="font-size:3rem;"></i>
-                                <p>No students enrolled in this class.</p>
+                                <p>No students enrolled.</p>
                             </div>
                         <?php endif; ?>
                     </div>
@@ -515,31 +420,23 @@ include '../includes/header.php';
 </div>
 
 <script>
-    // Open Class Modal
-    function openModal(id) { 
-        document.getElementById(id).style.display = 'flex'; 
-    }
-    
-    // Close Modal
+    function openModal(id) { document.getElementById(id).style.display = 'flex'; }
     function closeModal(id) { 
         document.getElementById(id).style.display = 'none';
         closeAllDropdowns();
     }
 
-    // Toggle Dropdown (Stop Propagation)
     function toggleDropdown(event, id) {
         event.stopPropagation();
-        closeAllDropdowns(); // Close others first
+        closeAllDropdowns();
         var menu = document.getElementById(id);
-        if (menu) menu.classList.toggle('active');
+        if(menu) menu.classList.toggle('active');
     }
 
-    // Close all dropdowns
     function closeAllDropdowns() {
         document.querySelectorAll('.dropdown-menu').forEach(el => el.classList.remove('active'));
     }
 
-    // Window Click
     window.onclick = function(event) {
         if (!event.target.closest('.action-wrapper')) {
             closeAllDropdowns();
