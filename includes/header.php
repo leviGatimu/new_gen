@@ -25,6 +25,7 @@ switch ($role) {
             ['link' => 'leadership.php', 'icon' => 'bxs-star', 'text' => 'Leadership'],
             ['link' => 'events.php', 'icon' => 'bxs-calendar-event', 'text' => 'Events'],
             ['link' => 'classes.php', 'icon' => 'bxs-school', 'text' => 'Classes'],
+            ['link' => 'manage_timetable.php', 'icon' => 'bxs-calendar', 'text' => 'Timetable'], // Added Here
             ['link' => 'finance_report.php', 'icon' => 'bxs-bar-chart-alt-2', 'text' => 'Finance'],
             ['link' => 'settings.php', 'icon' => 'bxs-cog', 'text' => 'Settings'],
         ];
@@ -33,6 +34,7 @@ switch ($role) {
     case 'student':
         $navItems = [
             ['link' => 'dashboard.php', 'icon' => 'bxs-dashboard', 'text' => 'Dashboard'],
+            ['link' => 'timetable.php', 'icon' => 'bxs-calendar', 'text' => 'My Timetable'], // Added Here
             ['link' => 'academics.php', 'icon' => 'bxs-graduation', 'text' => 'Academics'],
             ['link' => 'results.php', 'icon' => 'bxs-bar-chart-alt-2', 'text' => 'My Results'],
             ['link' => 'messages.php', 'icon' => 'bxs-chat', 'text' => 'Messages'],

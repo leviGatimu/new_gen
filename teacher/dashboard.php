@@ -3,17 +3,17 @@
 session_start();
 require '../config/db.php';
 
-// SECURITY CHECK
+// 1. SECURITY CHECK
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'teacher') {
-    header("Location: ../index.php");
-    exit;
+    header("Location: ../index.php"); exit;
 }
 
 $teacher_id = $_SESSION['user_id'];
-$teacher_name = $_SESSION['name'];
+$teacher_name = $_SESSION['full_name'] ?? 'Teacher';
 
-// 1. FETCH ALLOCATIONS
-$sql = "SELECT ta.*, c.class_name, s.subject_name, cat.category_name, cat.color_code 
+// 2. FETCH TEACHING ALLOCATIONS
+$sql = "SELECT ta.*, c.class_name, s.subject_name, cat.category_name, cat.color_code,
+        (SELECT COUNT(*) FROM students st WHERE st.class_id = c.class_id) as student_count
         FROM teacher_allocations ta 
         JOIN classes c ON ta.class_id = c.class_id 
         JOIN subjects s ON ta.subject_id = s.subject_id
@@ -24,268 +24,361 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute(['tid' => $teacher_id]);
 $allocations = $stmt->fetchAll();
 
-// 2. FETCH CLASS TEACHER ROLE
-$ct_sql = "SELECT c.*, cat.category_name FROM classes c 
-           LEFT JOIN class_categories cat ON c.category_id = cat.category_id
-           WHERE c.class_teacher_id = :tid";
+// 3. FETCH CLASS TEACHER ROLE
+$ct_sql = "SELECT c.* FROM classes c WHERE c.class_teacher_id = :tid";
 $stmt = $pdo->prepare($ct_sql);
 $stmt->execute(['tid' => $teacher_id]);
 $my_class = $stmt->fetch();
 
+// 4. FETCH TODAY'S SCHEDULE
+$today_day = date('l'); 
+$sched_sql = "SELECT t.*, c.class_name, s.subject_name, t.start_time, t.end_time 
+              FROM timetable_entries t
+              JOIN teacher_allocations ta ON t.class_id = ta.class_id AND t.subject_id = ta.subject_id
+              JOIN classes c ON t.class_id = c.class_id
+              JOIN subjects s ON t.subject_id = s.subject_id
+              WHERE ta.teacher_id = :tid AND t.day_of_week = :day
+              ORDER BY t.start_time ASC";
+$stmt = $pdo->prepare($sched_sql);
+$stmt->execute(['tid' => $teacher_id, 'day' => $today_day]);
+$todays_classes = $stmt->fetchAll();
+
+// 5. FETCH RECENT ASSESSMENTS
+$ass_sql = "SELECT oa.*, c.class_name FROM online_assessments oa 
+            JOIN classes c ON oa.class_id = c.class_id
+            WHERE oa.teacher_id = :tid 
+            ORDER BY oa.created_at DESC LIMIT 5";
+$stmt = $pdo->prepare($ass_sql);
+$stmt->execute(['tid' => $teacher_id]);
+$recent_exams = $stmt->fetchAll();
+
+// 6. CALCULATE TOTALS
 $total_courses = count($allocations);
+$total_students = 0;
+foreach($allocations as $a) { $total_students += $a['student_count']; }
+
+// INCLUDE HEADER
+$page_title = "Teacher Dashboard";
+include '../includes/header.php';
 ?>
 
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Teacher Dashboard | NGA</title>
-    <link rel="stylesheet" href="../assets/css/style.css">
-    <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
-    
+<div class="container">
     <style>
-        /* === THEME VARIABLES === */
+        /* === PREMIUM DASHBOARD VARIABLES === */
         :root { 
             --primary: #FF6600; 
-            --primary-hover: #e65c00;
-            --dark: #212b36; 
-            --light-bg: #f4f6f8; 
-            --white: #ffffff; 
-            --border: #dfe3e8; 
-            --nav-height: 75px;
+            --dark: #0f172a; 
+            --gray: #64748b; 
+            --bg-body: #f8fafc;
+            --bg-card: #ffffff;
+            --border: #e2e8f0; 
+            --radius: 20px;
+            --shadow: 0 10px 15px -3px rgba(0,0,0,0.05), 0 4px 6px -2px rgba(0,0,0,0.02);
+            --shadow-hover: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);
         }
         
-        html, body { 
-            background-color: var(--light-bg); 
-            margin: 0; padding: 0; 
-            font-family: 'Public Sans', sans-serif;
-            overflow-y: auto;
+        body { background-color: var(--bg-body); }
+
+        /* LAYOUT WRAPPER */
+        .dashboard-wrapper {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px 20px 80px 20px;
         }
 
-        /* === TOP NAVIGATION BAR (Standard) === */
-        .top-navbar {
-            position: fixed; top: 0; left: 0; width: 100%; height: var(--nav-height);
-            background: var(--white); z-index: 1000;
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 0 40px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-            border-bottom: 1px solid var(--border);
-            box-sizing: border-box;
-        }
-
-        .nav-brand { display: flex; align-items: center; gap: 15px; text-decoration: none; }
-        .logo-box { width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; background: #fafbfc; border-radius: 8px; border: 1px solid var(--border); }
-        .logo-box img { width: 80%; height: 80%; object-fit: contain; }
-        .nav-brand-text { font-size: 1.25rem; font-weight: 800; color: var(--dark); letter-spacing: -0.5px; }
-
-        .nav-menu { display: flex; gap: 5px; align-items: center; }
-        .nav-item {
-            text-decoration: none; color: #637381; font-weight: 600; font-size: 0.95rem;
-            padding: 10px 15px; border-radius: 8px; transition: 0.2s;
-            display: flex; align-items: center; gap: 6px;
-        }
-        .nav-item:hover { color: var(--primary); background: rgba(255, 102, 0, 0.05); }
-        .nav-item.active { background: var(--primary); color: white; }
-
-        .btn-logout {
-            text-decoration: none; color: #ff4d4f; font-weight: 700; font-size: 0.85rem;
-            padding: 8px 16px; border: 1.5px solid #ff4d4f; border-radius: 8px; transition: 0.2s;
-        }
-        .btn-logout:hover { background: #ff4d4f; color: white; }
-
-        /* === CONTENT AREA === */
-        .main-content {
-            margin-top: var(--nav-height);
-            padding: 40px 5%;
-            max-width: 1400px;
-            margin-left: auto;
-            margin-right: auto;
-        }
-
-        .welcome-banner {
-            background: var(--white); padding: 30px; border-radius: 16px;
-            margin-bottom: 35px; border: 1px solid var(--border);
-            display: flex; justify-content: space-between; align-items: center;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.03);
-        }
-
-        /* STATS */
-        .stats-row {
-            display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 20px; margin-bottom: 40px;
-        }
-        .stat-card {
-            background: var(--white); padding: 25px; border-radius: 16px;
-            border: 1px solid var(--border); display: flex; align-items: center; gap: 20px;
-        }
-        .stat-icon { width: 50px; height: 50px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; background: #fff0e6; color: var(--primary); }
-
-        /* COURSE GRID */
-        .course-grid {
-            display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 25px;
-        }
-        .course-card {
-            background: var(--white);
-            border-radius: 16px;
-            border: 1px solid var(--border);
-            padding: 25px;
-            transition: 0.3s;
-            position: relative;
+        /* 1. HERO SECTION */
+        .hero-card {
+            background: linear-gradient(135deg, #0f172a 0%, #334155 100%);
+            border-radius: var(--radius);
+            padding: 40px;
+            color: white;
             display: flex;
-            flex-direction: column;
-            align-items: flex-start;
             justify-content: space-between;
-            min-height: 200px;
-        }
-        .course-card:hover { transform: translateY(-5px); box-shadow: 0 12px 24px rgba(0,0,0,0.1); border-color: var(--primary); }
-        
-        .cat-badge { font-size: 0.7rem; padding: 3px 8px; border-radius: 10px; color: white; font-weight: 700; text-transform: uppercase; }
-        
-        .course-actions {
-            margin-top: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            width: 100%;
-        }
-
-        .btn-dash {
-            padding: 10px;
-            border-radius: 8px;
-            font-weight: 700;
-            font-size: 0.9rem;
-            text-decoration: none;
-            display: flex;
             align-items: center;
-            justify-content: center;
-            gap: 8px;
-            transition: 0.2s;
-            box-sizing: border-box;
+            margin-bottom: 40px;
+            box-shadow: var(--shadow-hover);
+            position: relative;
+            overflow: hidden;
+        }
+        .hero-card::after {
+            content: ''; position: absolute; right: 0; bottom: 0; width: 300px; height: 300px;
+            background: radial-gradient(circle, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0) 70%);
+            border-radius: 50%; pointer-events: none;
+        }
+        .hero-text h1 { margin: 0 0 10px 0; font-size: 2.2rem; font-weight: 800; letter-spacing: -0.5px; }
+        .hero-text p { color: #cbd5e1; font-size: 1.1rem; margin: 0; }
+        
+        .date-badge {
+            background: rgba(255,255,255,0.1); backdrop-filter: blur(10px);
+            padding: 15px 30px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.1);
+            text-align: center; min-width: 120px;
+        }
+        .date-badge .day { display: block; font-size: 1.8rem; font-weight: 800; line-height: 1; margin-bottom: 5px; }
+        .date-badge .month { text-transform: uppercase; font-size: 0.85rem; letter-spacing: 1px; opacity: 0.8; }
+
+        /* 2. STATS GRID (4 Columns) */
+        .stats-grid {
+            display: grid; grid-template-columns: repeat(4, 1fr); 
+            gap: 30px; margin-bottom: 50px;
+        }
+        .stat-box {
+            background: var(--bg-card); padding: 25px; border-radius: var(--radius);
+            border: 1px solid var(--border); box-shadow: var(--shadow);
+            display: flex; flex-direction: column; justify-content: center;
+            transition: transform 0.2s ease;
+        }
+        .stat-box:hover { transform: translateY(-5px); box-shadow: var(--shadow-hover); }
+        
+        .stat-top { display: flex; justify-content: space-between; align-items: start; margin-bottom: 15px; }
+        .stat-icon { 
+            width: 50px; height: 50px; border-radius: 12px; 
+            display: flex; align-items: center; justify-content: center; 
+            font-size: 1.5rem; color: white;
+        }
+        .stat-val { font-size: 2rem; font-weight: 800; color: var(--dark); line-height: 1; }
+        .stat-label { font-size: 0.9rem; color: var(--gray); font-weight: 600; margin-top: 5px; }
+
+        /* SECTION HEADERS */
+        .section-header { 
+            display: flex; justify-content: space-between; align-items: center; 
+            margin-bottom: 25px; padding-bottom: 15px; border-bottom: 2px solid #f1f5f9;
+        }
+        .section-title { font-size: 1.4rem; font-weight: 800; color: var(--dark); display: flex; align-items: center; gap: 12px; margin: 0; }
+        
+        /* 3. CLASSES GRID */
+        .classes-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); 
+            gap: 30px; margin-bottom: 60px;
+        }
+        .class-card {
+            background: var(--bg-card); border-radius: var(--radius); 
+            border: 1px solid var(--border); padding: 30px; 
+            position: relative; display: flex; flex-direction: column;
+            transition: all 0.3s ease; box-shadow: var(--shadow);
+        }
+        .class-card:hover { 
+            border-color: var(--primary); transform: translateY(-5px); 
+            box-shadow: var(--shadow-hover);
+        }
+        .class-stripe { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; border-radius: 6px 0 0 6px; }
+
+        .class-header { display: flex; justify-content: space-between; margin-bottom: 20px; font-size: 0.85rem; font-weight: 700; color: var(--gray); text-transform: uppercase; letter-spacing: 0.5px; }
+        
+        .class-body h3 { font-size: 1.3rem; font-weight: 800; color: var(--dark); margin: 0 0 10px 0; line-height: 1.3; }
+        .class-body p { display: flex; align-items: center; gap: 8px; color: var(--gray); font-weight: 500; font-size: 1rem; margin: 0 0 30px 0; }
+
+        .class-footer { margin-top: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .btn { 
+            padding: 12px; border-radius: 12px; font-weight: 700; font-size: 0.9rem; 
+            text-align: center; text-decoration: none; transition: 0.2s;
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+        }
+        .btn-pri { background: var(--dark); color: white; }
+        .btn-pri:hover { background: var(--primary); }
+        .btn-sec { background: #f1f5f9; color: var(--dark); }
+        .btn-sec:hover { background: #e2e8f0; }
+
+        /* 4. SPLIT BOTTOM SECTION */
+        .split-grid { display: grid; grid-template-columns: 1.5fr 1fr; gap: 40px; }
+        
+        .info-panel { 
+            background: var(--bg-card); border-radius: var(--radius); 
+            border: 1px solid var(--border); padding: 30px; 
+            box-shadow: var(--shadow); height: 100%;
         }
 
-        .btn-primary-dash { background: var(--dark); color: white; }
-        .btn-outline-dash { background: white; border: 1.5px solid var(--border); color: var(--dark); }
+        /* Schedule List */
+        .sched-item { 
+            display: flex; gap: 20px; padding: 20px 0; border-bottom: 1px solid #f1f5f9; align-items: center; 
+        }
+        .sched-item:last-child { border: none; padding-bottom: 0; }
+        .sched-time { 
+            min-width: 80px; text-align: right; font-weight: 800; font-size: 1rem; color: var(--dark); 
+        }
+        .sched-time span { display: block; font-size: 0.8rem; color: var(--gray); font-weight: 500; margin-top: 4px; }
+        .sched-info h4 { margin: 0 0 5px 0; font-size: 1rem; color: var(--dark); }
+        .sched-info p { margin: 0; font-size: 0.9rem; color: var(--gray); }
 
-        .btn-dash:hover { border-color: var(--primary); color: var(--primary); transform: translateY(-2px); }
-        .btn-primary-dash:hover { background: var(--primary); color: white; }
+        /* Recent Exams List */
+        .exam-item {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 15px; background: #f8fafc; border-radius: 12px; 
+            border: 1px solid var(--border); margin-bottom: 15px;
+        }
+        .exam-meta h5 { margin: 0 0 5px 0; font-size: 0.95rem; color: var(--dark); }
+        .exam-meta span { font-size: 0.8rem; color: var(--gray); }
+        .grade-btn { 
+            width: 35px; height: 35px; border-radius: 8px; background: white; border: 1px solid var(--border);
+            display: flex; align-items: center; justify-content: center; color: var(--gray); transition: 0.2s;
+        }
+        .grade-btn:hover { border-color: var(--primary); color: var(--primary); }
 
-        @media (max-width: 1000px) { .nav-menu span { display: none; } }
+        /* RESPONSIVE */
+        @media (max-width: 1024px) {
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+            .split-grid { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 600px) {
+            .stats-grid { grid-template-columns: 1fr; }
+            .hero-card { flex-direction: column; text-align: left; align-items: flex-start; gap: 20px; }
+        }
     </style>
-</head>
-<body>
 
-<?php include '../includes/preloader.php'; ?>
-
-<nav class="top-navbar">
-    <a href="dashboard.php" class="nav-brand">
-        <div class="logo-box">
-            <img src="../assets/images/logo.png" alt="NGA">
-        </div>
-        <span class="nav-brand-text">Teacher Portal</span>
-    </a>
-
-    <div class="nav-menu">
-        <a href="dashboard.php" class="nav-item active">
-            <i class='bx bxs-dashboard'></i> <span>Dashboard</span>
-        </a>
-        <a href="my_students.php" class="nav-item">
-            <i class='bx bxs-user-detail'></i> <span>Students</span>
-        </a>
-        <a href="assessments.php" class="nav-item"> <i class='bx bxs-layer'></i> <span>Assessments</span>
-        </a>
-        <a href="view_all_marks.php" class="nav-item">
-            <i class='bx bxs-edit'></i> <span>Grading</span>
-        </a>
-        <a href="messages.php" class="nav-item">
-            <i class='bx bxs-chat'></i> <span>Chat</span>
-        </a>
+    <div class="dashboard-wrapper">
         
-        <a href="take_attendance.php" class="nav-item">
-            <i class='bx bxs-file-doc'></i> <span>Attendance</span>
-        </a>
-        <a href="profile.php" class="nav-item">
-    <i class='bx bxs-user-circle'></i> <span>Profile</span>
-</a>
-    </div>
-
-    <div class="nav-user">
-        <a href="../logout.php" class="btn-logout">Logout</a>
-    </div>
-</nav>
-
-<div class="main-content">
-    
-    <div class="welcome-banner">
-        <div>
-            <h2 style="margin:0; font-size:1.8rem; color:var(--dark);">Welcome, <?php echo htmlspecialchars($teacher_name); ?></h2>
-            <p style="color: #637381; margin: 8px 0 0;">Manage your classes and academic results for the current term.</p>
-        </div>
-        <div style="text-align: right;">
-            <div style="font-weight: 800; color: var(--dark);"><?php echo date("l, d M"); ?></div>
-            <div style="color: var(--primary); font-weight: 700; font-size: 0.9rem;">Term 1 Active</div>
-        </div>
-    </div>
-
-    <div class="stats-row">
-        <div class="stat-card">
-            <div class="stat-icon"><i class='bx bxs-book-open'></i></div>
-            <div>
-                <div style="font-size: 1.5rem; font-weight: 800;"><?php echo $total_courses; ?></div>
-                <div style="font-size: 0.85rem; color: #637381; font-weight: 600;">Active Subjects</div>
+        <div class="hero-card">
+            <div class="hero-text">
+                <h1>Welcome, <?php echo htmlspecialchars($teacher_name); ?>!</h1>
+                <p>You have <strong><?php echo count($todays_classes); ?> classes</strong> on your schedule today.</p>
+            </div>
+            <div class="date-badge">
+                <span class="day"><?php echo date('d'); ?></span>
+                <span class="month"><?php echo date('M, Y'); ?></span>
             </div>
         </div>
 
-        <?php if($my_class): ?>
-        <div class="stat-card" style="border-left: 5px solid var(--primary);">
-            <div class="stat-icon" style="background:#fff3cd; color:#856404;"><i class='bx bxs-star'></i></div>
-            <div>
-                <div style="font-size: 1.2rem; font-weight: 800;"><?php echo htmlspecialchars($my_class['class_name']); ?></div>
-                <div style="font-size: 0.85rem; color: #637381; font-weight: 600;">Class Teacher Role</div>
+        <div class="stats-grid">
+            <div class="stat-box">
+                <div class="stat-top">
+                    <div class="stat-icon" style="background: #3b82f6;"><i class='bx bxs-book-open'></i></div>
+                </div>
+                <div class="stat-val"><?php echo $total_courses; ?></div>
+                <div class="stat-label">Allocated Subjects</div>
+            </div>
+
+            <div class="stat-box" style="<?php echo $my_class ? 'border-bottom: 4px solid #f59e0b;' : ''; ?>">
+                <div class="stat-top">
+                    <div class="stat-icon" style="background: #f59e0b;"><i class='bx bxs-star'></i></div>
+                </div>
+                <?php if($my_class): ?>
+                    <div class="stat-val" style="font-size:1.5rem;"><?php echo htmlspecialchars($my_class['class_name']); ?></div>
+                    <div class="stat-label" style="color:#d97706;">Class Teacher</div>
+                <?php else: ?>
+                    <div class="stat-val" style="color:#cbd5e1;">N/A</div>
+                    <div class="stat-label">No Class Assigned</div>
+                <?php endif; ?>
+            </div>
+
+            <div class="stat-box">
+                <div class="stat-top">
+                    <div class="stat-icon" style="background: #8b5cf6;"><i class='bx bxs-group'></i></div>
+                </div>
+                <div class="stat-val"><?php echo $total_students; ?></div>
+                <div class="stat-label">Total Students</div>
+            </div>
+
+            <div class="stat-box">
+                <div class="stat-top">
+                    <div class="stat-icon" style="background: #10b981;"><i class='bx bxs-edit-alt'></i></div>
+                </div>
+                <div class="stat-val"><?php echo count($recent_exams); ?></div>
+                <div class="stat-label">Assessments Created</div>
             </div>
         </div>
+
+        <div class="section-header">
+            <h2 class="section-title"><i class='bx bxs-grid-alt' style="color:var(--primary);"></i> Teaching Allocations</h2>
+        </div>
+
+        <?php if($total_courses > 0): ?>
+            <div class="classes-grid">
+                <?php foreach($allocations as $row): ?>
+                <div class="class-card">
+                    <div class="class-stripe" style="background: <?php echo $row['color_code'] ?? '#94a3b8'; ?>;"></div>
+                    
+                    <div class="class-header">
+                        <span><?php echo htmlspecialchars($row['category_name'] ?? 'General'); ?></span>
+                        <span><i class='bx bxs-user'></i> <?php echo $row['student_count']; ?></span>
+                    </div>
+
+                    <div class="class-body">
+                        <h3><?php echo htmlspecialchars($row['subject_name']); ?></h3>
+                        <p><i class='bx bxs-school'></i> <?php echo htmlspecialchars($row['class_name']); ?></p>
+                    </div>
+
+                    <div class="class-footer">
+                        <a href="assessments.php?class_id=<?php echo $row['class_id']; ?>" class="btn btn-pri">
+                            <i class='bx bx-plus'></i> Exam
+                        </a>
+                        <a href="view_all_marks.php?class_id=<?php echo $row['class_id']; ?>&subject_id=<?php echo $row['subject_id']; ?>" class="btn btn-sec">
+                            <i class='bx bx-spreadsheet'></i> Marks
+                        </a>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        <?php else: ?>
+            <div style="text-align:center; padding:60px; border:2px dashed #e2e8f0; border-radius:20px; margin-bottom:60px; color:var(--gray);">
+                <i class='bx bx-ghost' style="font-size:3rem; margin-bottom:15px; opacity:0.5;"></i>
+                <p>No subjects allocated yet.</p>
+            </div>
         <?php endif; ?>
 
-        <div class="stat-card">
-            <div class="stat-icon" style="background:#e6f7ed; color:#00ab55;"><i class='bx bxs-check-shield'></i></div>
-            <div>
-                <div style="font-size: 1.5rem; font-weight: 800;">Secure</div>
-                <div style="font-size: 0.85rem; color: #637381; font-weight: 600;">Data Protection</div>
-            </div>
-        </div>
-    </div>
-
-    <h3 style="margin-bottom: 25px; color: var(--dark); font-size: 1.2rem; font-weight: 800;">My Teaching Allocations</h3>
-    
-    <div class="course-grid">
-        <?php foreach($allocations as $row): ?>
-        <div class="course-card">
-            <span class="cat-badge" style="background: <?php echo $row['color_code']; ?>;">
-                <?php echo htmlspecialchars($row['category_name']); ?>
-            </span>
-            <h3 style="margin: 15px 0 5px 0; color: var(--dark);"><?php echo htmlspecialchars($row['subject_name']); ?></h3>
-            <p style="color: #637381; font-weight: 600; margin: 0;"><?php echo htmlspecialchars($row['class_name']); ?></p>
+        <div class="split-grid">
             
-            <div class="course-actions">
-                <a href="enter_marks.php?alloc_id=<?php echo $row['allocation_id']; ?>" class="btn-dash btn-primary-dash">
-                    <i class='bx bxs-edit-alt'></i> Enter Marks
-                </a>
-                <a href="view_marks.php?alloc_id=<?php echo $row['allocation_id']; ?>" class="btn-dash btn-outline-dash">
-                    <i class='bx bxs-spreadsheet'></i> View Marks
-                </a>
+            <div class="info-panel">
+                <div class="section-header" style="border:none; padding:0; margin-bottom:20px;">
+                    <h2 class="section-title"><i class='bx bx-time-five' style="color:var(--primary);"></i> Today's Schedule</h2>
+                </div>
+
+                <?php if(empty($todays_classes)): ?>
+                    <div style="text-align:center; padding:40px 0; color:var(--gray);">
+                        <i class='bx bx-coffee' style="font-size:2.5rem; margin-bottom:10px; opacity:0.5;"></i>
+                        <p>No classes scheduled for today.</p>
+                    </div>
+                <?php else: ?>
+                    <div>
+                        <?php foreach($todays_classes as $cls): ?>
+                        <div class="sched-item">
+                            <div class="sched-time">
+                                <?php echo date("H:i", strtotime($cls['start_time'])); ?>
+                                <span><?php echo date("H:i", strtotime($cls['end_time'])); ?></span>
+                            </div>
+                            <div class="sched-info">
+                                <h4><?php echo htmlspecialchars($cls['subject_name']); ?></h4>
+                                <p><?php echo htmlspecialchars($cls['class_name']); ?></p>
+                            </div>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
             </div>
+
+            <div class="info-panel">
+                <div class="section-header" style="border:none; padding:0; margin-bottom:20px;">
+                    <h2 class="section-title"><i class='bx bx-task' style="color:var(--primary);"></i> Recent Exams</h2>
+                    <a href="assessments.php" style="color:var(--primary); font-weight:700; text-decoration:none;">View All</a>
+                </div>
+
+                <?php if(empty($recent_exams)): ?>
+                    <div style="text-align:center; padding:40px 0; color:var(--gray);">No recent assessments.</div>
+                <?php else: ?>
+                    <div>
+                        <?php foreach($recent_exams as $exam): ?>
+                        <div class="exam-item">
+                            <div class="exam-meta">
+                                <h5><?php echo htmlspecialchars($exam['title']); ?></h5>
+                                <span><?php echo htmlspecialchars($exam['class_name']); ?></span>
+                            </div>
+                            <a href="mark_online.php?id=<?php echo $exam['id']; ?>" class="grade-btn" title="Grade">
+                                <i class='bx bxs-edit'></i>
+                            </a>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+                
+                <div style="margin-top:20px;">
+                    <a href="take_attendance.php" class="btn btn-sec" style="width:100%;">
+                        <i class='bx bx-calendar-check'></i> Take Attendance
+                    </a>
+                </div>
+            </div>
+
         </div>
-        <?php endforeach; ?>
 
-        <?php if($total_courses == 0): ?>
-            <div style="grid-column: 1/-1; text-align: center; padding: 50px; color: #919eab;">
-                <i class='bx bx-folder-open' style="font-size: 3rem;"></i>
-                <p>No subjects have been allocated to you yet.</p>
-            </div>
-        <?php endif; ?>
     </div>
-
+    
     <div style="height: 60px;"></div>
 </div>
 
