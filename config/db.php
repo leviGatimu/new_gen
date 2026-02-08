@@ -1,10 +1,10 @@
 <?php
 // config/db.php
 
-$host = 'localhost';
-$db_name = 'new_generation_db';
-$username = 'root'; // Default XAMPP username
-$password = '';     // Default XAMPP password (leave empty)
+$host = 'sql108.infinityfree.com';
+$db_name = 'if0_41106986_new_generation_db';
+$username = 'if0_41106986'; // Default XAMPP username
+$password = '20101910levi';     // Default XAMPP password (leave empty)
 
 try {
     $pdo = new PDO("mysql:host=$host;dbname=$db_name", $username, $password);
