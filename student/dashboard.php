@@ -279,7 +279,7 @@ $announcements = $msg_stmt->fetchAll();
             </div>
 
             <div class="card" style="border-top: 4px solid #FF6600;">
-                <h3 style="margin-top:0; font-size:1rem; color:#212b36;">Parent Access</h3>
+                <h3 style="margin-top:0; font-size:1rem; color:#212b36;">Parent Access.</h3>
                 
                 <?php if ($me['is_linked'] > 0): ?>
                     <div style="text-align:center; padding:10px;">
