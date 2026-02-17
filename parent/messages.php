@@ -172,7 +172,7 @@ include '../includes/header.php';
     
     <div class="chat-sidebar">
         <div class="contacts-header">
-            <h2>Messages</h2>
+            <h2>Messages.</h2>
         </div>
         <div class="contacts-list">
             <?php foreach($teachers as $t): ?>
