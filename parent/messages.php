@@ -234,7 +234,7 @@ include '../includes/header.php';
         <?php else: ?>
             <div class="empty-chat">
                 <i class='bx bxs-chat' style="font-size:4rem; margin-bottom:20px; opacity:0.2;"></i>
-                <h3>Select a Teacher</h3>
+                <h3>Select a Teacher.</h3>
                 <p>Choose a teacher from the list to start messaging.</p>
             </div>
         <?php endif; ?>
